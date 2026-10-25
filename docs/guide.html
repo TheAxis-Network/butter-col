@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guide · butter-col</title>
+<meta name="description" content="Install, run, configure and deploy butter-col.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,650;1,9..144,600&family=Inter:wght@400;600&family=JetBrains+Mono&display=swap">
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" type="image/png" href="/butter-col.png">
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="/"><img src="/butter-col.png" alt="butter-col" width="77" height="40"></a>
+  <nav class="site-nav" aria-label="Main">
+    <a href="/">Launch</a>
+    <a href="/guide.html" aria-current="page">Guide</a>
+    <a href="/packages.html">Packages</a>
+    <a href="/transports.html">Transports</a>
+    <a href="/custom-transports.html">Build a transport</a>
+    <a href="/architecture.html">Architecture</a>
+    <a href="/formatter.html">Formatter</a>
+    <a href="/protocol.html">Protocol</a>
+    <a href="/known-issues.html">Known issues</a>
+    <a href="/credits.html">Credits</a>
+  </nav>
+</header>
+
+<div class="docs">
+  <nav class="toc" aria-label="On this page">
+    <h2>Start</h2>
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#requirements">Requirements</a></li>
+      <li><a href="#install">Install</a></li>
+      <li><a href="#run">Run the server</a></li>
+      <li><a href="#first-browse">First browse</a></li>
+      <li><a href="#frontend">The frontend</a></li>
+    </ul>
+    <h2>Work on it</h2>
+    <ul>
+      <li><a href="#scripts">npm scripts</a></li>
+      <li><a href="#layout">Project layout</a></li>
+      <li><a href="#development">Development loop</a></li>
+    </ul>
+    <h2>Configure</h2>
+    <ul>
+      <li><a href="#config">butter.config.lua</a></li>
+      <li><a href="#config-reference">Reference</a></li>
+      <li><a href="#nginx">nginx configuration</a></li>
+      <li><a href="#codecs">Choosing a codec</a></li>
+    </ul>
+    <h2>Deploy</h2>
+    <ul>
+      <li><a href="#https">HTTPS</a></li>
+      <li><a href="#reverse-proxy">Behind a reverse proxy</a></li>
+      <li><a href="#hardening">Hardening checklist</a></li>
+    </ul>
+    <h2>Help</h2>
+    <ul>
+      <li><a href="#troubleshooting">Troubleshooting</a></li>
+      <li><a href="#faq">FAQ</a></li>
+    </ul>
+  </nav>
+
+  <article class="prose">
+    <h1>Guide</h1>
+    <p class="lead">Everything you need to install, run, configure and deploy butter-col.</p>
+
+    <h2 id="overview">Overview</h2>
+    <p>butter-col is an interception web proxy in the same family as Ultraviolet and Scramjet. A visitor opens a site through a URL like <code>/butter/go/https%3A%2F%2Fexample.com%2F</code>. A <strong>service worker</strong> intercepts every request that page makes and hands it to a <strong>transport</strong>, which fetches it. The service worker then rewrites what comes back so the page keeps working from the proxy's origin.</p>
+    <p>Transports are pluggable. The built-in <code>butter</code> transport talks to butter-col's own OpenResty (nginx + LuaJIT) server. Others, such as <code>@axis-network/bare-transport</code>, talk to different backends, and visitors can switch between the ones you offer. See <a href="/transports.html">Transports</a>.</p>
+    <table>
+      <thead><tr><th>Part</th><th>Language</th><th>Where</th><th>Job</th></tr></thead>
+      <tbody>
+        <tr><td>Server</td><td>Lua (OpenResty)</td><td><code>packages/butter-col/server/</code></td><td>Backend of the <code>butter</code> transport: validates targets, blocks private networks, keeps cookie jars, proxies HTTP and WebSockets</td></tr>
+        <tr><td>Service worker</td><td>TypeScript</td><td><code>packages/butter-col/src/sw/</code></td><td>Intercepts requests, builds upstream headers, runs the active transport, rewrites responses</td></tr>
+        <tr><td>Transports</td><td>TypeScript / JavaScript</td><td><code>packages/butter-transport</code>, <code>packages/bare-transport</code>, <code>packages/butter-col/src/transports/</code></td><td>Move the bytes</td></tr>
+        <tr><td>Formatter</td><td>JavaScript</td><td><code>packages/butter-col/src/formatter/</code></td><td>URL codecs and the HTML / CSS / JS rewriters</td></tr>
+        <tr><td>Client runtime</td><td>JavaScript</td><td><code>packages/butter-col/src/client/</code></td><td>Hooks browser APIs inside proxied pages and workers</td></tr>
+        <tr><td>Docs</td><td>HTML / CSS</td><td><code>docs/</code></td><td>This site and the launcher</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="requirements">Requirements</h2>
+    <ul>
+      <li><strong>Node.js 20 or newer</strong> for the CLI and tooling. Development used Node 24, which the cookie-jar tests need because they load a <code>.ts</code> file directly.</li>
+      <li><strong>OpenResty 1.21 or newer</strong> for the <code>butter</code> transport. The Windows build tested here is 1.27.1.2, the newest one published for Windows. On Linux and macOS, use the official packages. A <a href="/packages.html#static">serverless deployment</a> with another transport needs no OpenResty at all.</li>
+      <li><strong>A modern browser</strong> with service workers: Chrome or Edge 100+, Firefox 102+, or Safari 15.4+. Private and incognito windows sometimes disable service workers.</li>
+      <li><strong>A secure context</strong>. Service workers only run on <code>https://</code> or on <code>http://localhost</code>.</li>
+    </ul>
+
+    <h2 id="install">Install</h2>
+    <h3>In your own project</h3>
+    <pre><code>npm install @axis-network/butter-col
+cp node_modules/@axis-network/butter-col/server/config.lua butter.config.lua
+npx butter-col server start</code></pre>
+    <p>That serves butter-col's <a href="#frontend">frontend</a> on <a href="/">http://localhost:8080/</a>. Use <code>--site &lt;dir&gt;</code> to serve your own pages there instead; the frontend stays available at <code>/app/</code>. <a href="/packages.html#new-project">Packages → A new project</a> walks through adding transports.</p>
+    <h3>Working on butter-col itself</h3>
+    <pre><code>git clone &lt;your fork&gt; butter-col
+cd butter-col
+npm install          # links the workspaces (packages/*, examples/*)
+npm run build        # builds every package
+npx butter-col transport add @axis-network/bare-transport
+npx butter-col transport add butter-transport-template
+npm start            # this docs site on :8080, the frontend on :8080/app/</code></pre>
+
+    <h3>Getting OpenResty</h3>
+    <p><strong>Windows:</strong> download <code>openresty-&lt;version&gt;-win64.zip</code> from <a href="https://openresty.org/en/download.html">openresty.org</a> and unzip it into <code>.tools/</code>, either in your project or in any parent directory. That gives you, for example, <code>.tools/openresty-1.27.1.2-win64/nginx.exe</code>, and the CLI finds it automatically.</p>
+    <p><strong>Debian / Ubuntu:</strong> add the OpenResty apt repository by following the instructions on openresty.org, then <code>sudo apt install openresty</code>.</p>
+    <p><strong>macOS:</strong> <code>brew install openresty/brew/openresty</code>.</p>
+    <p>Anywhere else, set <code>OPENRESTY</code> or pass <code>--openresty /path/to/openresty</code>.</p>
+
+    <h2 id="run">Run the server</h2>
+    <pre><code>npx butter-col server start     # foreground; Ctrl+C stops it
+npx butter-col server stop
+npx butter-col server reload    # re-render config, reload without dropping connections
+npx butter-col server test      # re-render and check the config (nginx -t)</code></pre>
+    <p>In this repository, <code>npm start</code>, <code>npm stop</code> and <code>npm run reload</code> run those commands with <code>--site docs --config butter.config.lua</code>.</p>
+    <p>On every start, the CLI does three things:</p>
+    <ul>
+      <li>Renders the nginx configuration from the package's templates into a <em>runtime directory</em> (<code>.butter/</code> by default), using absolute paths to the package's Lua code and built files.</li>
+      <li>Copies the built-in and added transports into <code>.butter/www/butter/transports/</code>.</li>
+      <li>Downloads Mozilla's CA bundle to <code>.butter/cacert.pem</code> if it isn't there yet.</li>
+    </ul>
+    <p>The server listens on <strong>port 8080</strong> unless you pass <code>--port</code>. Check it's alive:</p>
+    <pre><code>curl http://localhost:8080/butter/health
+{"ok":true,"name":"butter-col","version":"0.1.0"}</code></pre>
+    <p>Logs go to <code>.butter/logs/error.log</code> and <code>.butter/logs/access.log</code>. Proxied URLs travel in request headers rather than the request line, so the access log only shows <code>POST /butter/fetch</code> and not the sites people visited. The error log's startup line lists the offered transports.</p>
+
+    <h2 id="first-browse">First browse</h2>
+    <ol>
+      <li>Open the frontend: <a href="/app/">http://localhost:8080/app/</a> (or <code>/</code> when you didn't pass <code>--site</code>).</li>
+      <li>Type <code>example.com</code> (or any search) and press <strong>Go</strong>.</li>
+      <li>The page opens inside the frontend's browser view. Behind the scenes, <a href="/packages.html#controller">ButterController</a> installed <code>/butter/sw.js</code> with scope <code>/</code>, read <code>/butter/config.js</code> (which also issues your session cookie), and encoded the URL.</li>
+    </ol>
+    <p>If you open a <code>/butter/go/…</code> link before the service worker is installed, or after a hard reload (which bypasses it), the server sends a small <em>bootstrap</em> page. It installs the service worker and reloads.</p>
+
+    <h2 id="frontend">The frontend</h2>
+    <p>butter-col ships with a frontend (<code>packages/butter-col/site/</code>). It's served at <code>/app/</code> on every server, and at <code>/</code> when no <code>--site</code> is given.</p>
+    <table>
+      <thead><tr><th>Part</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td>Home</td><td>A search-or-address box. Text that looks like an address opens directly; anything else is searched with your chosen engine. Underneath: the active transport, with a link to change it, and your recent sites.</td></tr>
+        <tr><td>Browser view</td><td>The proxied page in a frame, below a toolbar with back, forward, reload, an address bar, home, full screen and open-in-new-tab. The address bar follows the page, including single-page apps that change their URL without reloading, and shows a warning lock for unencrypted <code>http://</code> sites. The open page is kept in the frontend's URL (<code>#&lt;address&gt;</code>), so reloading the frontend reopens it.</td></tr>
+        <tr><td>Settings</td><td>Transport (switches for this browser), search engine (DuckDuckGo, Google, Bing, Brave Search, Startpage), theme (device, dark, light), clearing recent sites, and opening butter-col in an <em>about:blank</em> tab, whose address stays about:blank so the sites you browse stay out of your history.</td></tr>
+        <tr><td>Keyboard</td><td><kbd>/</kbd> focuses the search box at home. <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>L</kbd> or <kbd>F6</kbd> focuses the address bar. <kbd>Esc</kbd> in the address bar puts back the current address.</td></tr>
+      </tbody>
+    </table>
+    <p>Preferences and recent sites are stored in the browser's <code>localStorage</code>, under the key <code>butter-col:frontend</code>. Nothing is sent to the server.</p>
+    <p><strong>Your own frontend:</strong> serve any pages with <code>--site</code>. Import <code>ButterController</code> from <code>/butter/controller.mjs</code> to install the service worker, encode URLs (<code>encodeUrl</code>, <code>resolveInput</code>), list and switch transports, and decode the URL of a proxied page you show in an <code>&lt;iframe&gt;</code> (<code>decodeUrl(frame.contentWindow.location.href)</code>). <code>site/app.js</code> is a complete, commented example. See <a href="/packages.html#controller">Packages → ButterController</a>.</p>
+
+    <h2 id="scripts">npm scripts</h2>
+    <p>At the repository root:</p>
+    <table>
+      <thead><tr><th>Script</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td><code>npm run build</code></td><td>Builds <code>@axis-network/butter-transport</code>, <code>@axis-network/butter-col</code>, <code>@axis-network/bare-transport</code> and the template, in that order.</td></tr>
+        <tr><td><code>npm run typecheck</code></td><td>Runs <code>tsc</code> in every package that has TypeScript.</td></tr>
+        <tr><td><code>npm test</code></td><td>Formatter, cookie-jar and Bare transport tests (<code>node --test</code>).</td></tr>
+        <tr><td><code>npm run test:lua</code></td><td>Unit tests for the pure Lua modules, run inside fengari (Lua 5.3 in JavaScript) so no Lua install is needed.</td></tr>
+        <tr><td><code>npm run check</code></td><td>Build, typecheck and both test suites.</td></tr>
+        <tr><td><code>npm start</code> / <code>stop</code> / <code>reload</code></td><td>Runs this site through the CLI.</td></tr>
+        <tr><td><code>npm run dev -w @axis-network/butter-col</code></td><td>Rebuilds <code>dist/</code> unminified on every change.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="layout">Project layout</h2>
+    <pre><code>butter-col/
+├── butter.config.lua                  config used by `npm start` here
+├── butter-transports/                 transports added with the CLI (gitignored)
+├── .butter/                           server runtime: conf, logs, cacert.pem (gitignored)
+├── docs/                              this website (HTML/CSS) + launcher.js
+├── examples/transport-template/       "logged" transport: start here for your own
+└── packages/
+    ├── butter-transport/              @axis-network/butter-transport: transport API
+    │   └── src/ types.ts index.ts errors.ts util.ts testing.ts
+    ├── bare-transport/                @axis-network/bare-transport
+    │   └── src/ index.ts register.ts, test/
+    └── butter-col/                    @axis-network/butter-col
+        ├── bin/ lib/                  CLI and Node API
+        ├── site/                      the frontend (/app/, and / without --site)
+        ├── server/
+        │   ├── conf/*.template        nginx config, rendered by the CLI
+        │   ├── config.lua             default configuration
+        │   └── lua/butter/            init, config, transport (phase handlers), guard,
+        │                              dns, ip, url, cookiejar, headers, store, session, limit
+        ├── src/
+        │   ├── sw/                    service worker: index, route, request, response,
+        │   │                          transports (manager), cookie-jar, charset, error-page
+        │   ├── transports/butter.ts   the built-in transport
+        │   ├── controller/            ButterController
+        │   ├── formatter/             codecs, url, html, css, js
+        │   ├── client/                runtime: core, location, websocket, cookies, hooks/
+        │   └── static/bootstrap.html
+        └── test/                      formatter, cookie jar, Lua</code></pre>
+
+    <h2 id="development">Development loop</h2>
+    <ol>
+      <li>Run <code>npm run dev -w @axis-network/butter-col</code> in one terminal and <code>npm start</code> in another.</li>
+      <li>Edit <code>packages/butter-col/src/</code>. esbuild rebuilds <code>dist/</code> on every save, and the server serves <code>dist/</code> directly.</li>
+      <li>The service worker updates on the next navigation, because <code>sw.js</code> is <code>no-cache</code>. To force it, open DevTools → Application → Service Workers and tick <em>Update on reload</em>.</li>
+      <li>After changing a transport, rebuild it and run <code>butter-col transport add</code> again, then <code>npm run reload</code> so the copy in <code>.butter/</code> is refreshed.</li>
+      <li>For Lua changes, run <code>npm run reload</code>. The code cache is on, so a reload is required.</li>
+      <li>Run <code>npm run check</code> before committing.</li>
+    </ol>
+    <p>Pure Lua modules (<code>url</code>, <code>ip</code>, <code>cookiejar</code>, <code>headers</code>, <code>config</code>) must stay free of <code>ngx</code> and of Lua 5.2+ syntax, so they run under both LuaJIT and fengari's Lua 5.3. They avoid bit operators, <code>goto</code> and integer division.</p>
+
+    <h2 id="config">butter.config.lua</h2>
+    <p>The server reads the file given by <code>--config</code>, which defaults to <code>./butter.config.lua</code> and then to the package's <code>server/config.lua</code>. It reads it at startup and on every reload. The file returns a table that is deep-merged over the defaults in <code>server/lua/butter/config.lua</code>. Tables merge key by key, while lists (<code>nameservers</code>, <code>transports</code>, <code>blocked_hosts</code>) replace the defaults completely.</p>
+    <pre><code>return {
+  codec = "xor",
+  transports = {
+    { name = "butter" },
+    { name = "bare", options = { server = "https://bare.example.com/" } },
+  },
+  default_transport = "butter",
+  dns = { nameservers = { "9.9.9.9", "149.112.112.112" } },
+  rate_limit = { requests = 600, window = 60 },
+}</code></pre>
+    <p>A file that fails to parse or validate stops nginx at startup with the error in <code>.butter/logs/error.log</code>, rather than failing later at request time.</p>
+    <p>The browser learns the public part of the configuration (prefix, codec, endpoint paths and the transport list with its options) from <code>/butter/config.js</code>. The server generates it from the same table, so it is the single source of truth.</p>
+
+    <h2 id="config-reference">Configuration reference</h2>
+    <table>
+      <thead><tr><th>Key</th><th>Default</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td><code>base</code></td><td><code>"/butter/"</code></td><td>Path for butter-col's own endpoints and assets. The nginx template uses <code>/butter/</code>, so leave it unless you also edit the template.</td></tr>
+        <tr><td><code>prefix</code></td><td><code>"/butter/go/"</code></td><td>Prefix of proxied URLs. Must be under <code>base</code>. Also change the bootstrap location in the template.</td></tr>
+        <tr><td><code>codec</code></td><td><code>"plain"</code></td><td>URL codec: <code>none</code>, <code>plain</code>, <code>xor</code> or <code>base64</code>. See <a href="#codecs">choosing a codec</a>.</td></tr>
+        <tr><td><code>transports</code></td><td><code>{ { name = "butter" } }</code></td><td>Transports offered to browsers. Each entry has a <code>name</code>, an optional <code>url</code> (default <code>/butter/transports/&lt;name&gt;.js</code>) and optional <code>options</code> (sent to the factory as JSON, and public). See <a href="/transports.html#configure">Transports</a>.</td></tr>
+        <tr><td><code>default_transport</code></td><td><code>"butter"</code></td><td>Used until a visitor picks another. Must be in <code>transports</code>.</td></tr>
+        <tr><td><code>require_same_origin</code></td><td><code>true</code></td><td>Reject transport requests that the browser marks as cross-site (<code>Sec-Fetch-Site</code> / <code>Origin</code>), so other websites can't drive the proxy through visitors' browsers.</td></tr>
+        <tr><td><code>allow_non_browser</code></td><td><code>true</code></td><td>Allow clients that send neither header (curl, scripts).</td></tr>
+        <tr><td><code>user_agent</code></td><td><code>nil</code></td><td>Override the upstream <code>User-Agent</code>. By default the browser's own is forwarded.</td></tr>
+        <tr><td><code>dns.nameservers</code></td><td><code>{"1.1.1.1","8.8.8.8"}</code></td><td>Resolvers used by the SSRF guard. Entries can be <code>"ip"</code> or <code>{"ip", port}</code>.</td></tr>
+        <tr><td><code>dns.timeout</code> / <code>retrans</code></td><td><code>2000</code> / <code>2</code></td><td>Milliseconds per attempt / number of attempts.</td></tr>
+        <tr><td><code>dns.ipv6</code></td><td><code>false</code></td><td>Look up AAAA records when a host has no A record.</td></tr>
+        <tr><td><code>dns.min_ttl</code> / <code>max_ttl</code> / <code>negative_ttl</code></td><td><code>30</code> / <code>3600</code> / <code>30</code></td><td>Cache lifetime clamps in seconds. Failed lookups are cached for <code>negative_ttl</code>.</td></tr>
+        <tr><td><code>guard.allow_private</code></td><td><code>false</code></td><td>Allow loopback, private, link-local, CGNAT, multicast and other reserved addresses. <strong>Leave this off</strong> on any server other people can reach.</td></tr>
+        <tr><td><code>guard.allow_bad_ports</code></td><td><code>false</code></td><td>Allow the ports browsers refuse to fetch (SMTP 25, IRC 6667, …).</td></tr>
+        <tr><td><code>guard.blocked_hosts</code></td><td><code>{"localhost","local","internal","localdomain","home.arpa"}</code></td><td>Hosts never proxied. An entry also covers its subdomains, and a leading <code>*.</code> is accepted.</td></tr>
+        <tr><td><code>guard.allowed_hosts</code></td><td><code>nil</code></td><td>If set, only these hosts (and subdomains) can be proxied.</td></tr>
+        <tr><td><code>cookies.enabled</code></td><td><code>true</code></td><td>Keep a server-side cookie jar per browser session (for <code>"server"</code>-cookie transports).</td></tr>
+        <tr><td><code>cookies.max_per_session</code></td><td><code>500</code></td><td>Oldest cookies are evicted past this.</td></tr>
+        <tr><td><code>cookies.session_ttl</code></td><td><code>604800</code></td><td>Seconds a jar (and the <code>butter_sid</code> cookie) lives after its last change.</td></tr>
+        <tr><td><code>rate_limit.enabled</code></td><td><code>true</code></td><td>Fixed-window limiter per client address on <code>/butter/fetch</code> and <code>/butter/ws</code>.</td></tr>
+        <tr><td><code>rate_limit.requests</code> / <code>window</code></td><td><code>1200</code> / <code>60</code></td><td>Requests allowed per window (seconds). One page load can easily make 100+ requests, so don't set this too low.</td></tr>
+      </tbody>
+    </table>
+    <p>The guard, cookie and rate-limit settings only apply to traffic through butter-col's own server, which means the <code>butter</code> transport. Other transports' backends have their own policies.</p>
+
+    <h2 id="nginx">nginx configuration</h2>
+    <p>The CLI renders <code>server/conf/nginx.conf.template</code> and <code>butter-proxy.conf.template</code> into <code>.butter/conf/</code>. To manage OpenResty yourself, render them with <code>renderServerConfig()</code> from the <a href="/packages.html#node-api">Node API</a>, or copy the rendered files. The parts worth knowing:</p>
+    <dl class="ref">
+      <dt>listen</dt>
+      <dd>Set with <code>--port</code>.</dd>
+      <dt>lua_shared_dict butter_dns 10m / butter_cookies 64m / butter_limit 10m</dt>
+      <dd>Memory shared by all workers. Cookie jars are evicted least-recently-used when <code>butter_cookies</code> fills up, and a warning is logged when that happens. Raise it if you have many users.</dd>
+      <dt>large_client_header_buffers 8 64k</dt>
+      <dd>Room for the <code>X-Butter-Headers</code> JSON on transport requests.</dd>
+      <dt>client_max_body_size 100m</dt>
+      <dd>Largest upload a proxied page can send.</dd>
+      <dt>location = /butter/fetch and /butter/ws</dt>
+      <dd>Lua prepares the request in <code>access_by_lua</code>. nginx's <code>proxy_pass</code> then streams it to the address that Lua resolved and checked. <code>header_filter_by_lua</code> packs the upstream status and headers into <code>X-Butter-*</code> headers.</dd>
+      <dt>butter-proxy.conf</dt>
+      <dd>Upstream TLS verification (<code>proxy_ssl_verify on</code> against the CA bundle, SNI from the original host name), timeouts, buffer sizes, and <code>proxy_ignore_headers X-Accel-…</code> so an upstream can never trigger an nginx internal redirect.</dd>
+      <dt>location ^~ /butter/transports/</dt>
+      <dd>Serves the transport scripts the CLI staged into the runtime directory.</dd>
+      <dt>location ^~ /butter/go/</dt>
+      <dd>Serves <code>bootstrap.html</code> whenever a proxied URL reaches the server, meaning the service worker didn't handle it.</dd>
+    </dl>
+
+    <h2 id="codecs">Choosing a codec</h2>
+    <table>
+      <thead><tr><th>Codec</th><th>https://example.com/a?b=1 becomes</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td><code>none</code></td><td><code>/butter/go/https://example.com/a?b=1</code></td><td>Readable, and relative URLs resolve naturally. Some intermediaries collapse <code>//</code> in paths.</td></tr>
+        <tr><td><code>plain</code></td><td><code>/butter/go/https%3A%2F%2Fexample.com%2Fa%3Fb%3D1</code></td><td>The default. Safe everywhere and easy to debug.</td></tr>
+        <tr><td><code>xor</code></td><td><code>/butter/go/hvtrs8%2F-ezaopne%2Ccmm-a%3Db%3F1</code></td><td>Ultraviolet's scheme. Not encryption; it only keeps the target from showing up in plain text.</td></tr>
+        <tr><td><code>base64</code></td><td><code>/butter/go/aHR0cHM6Ly9leGFtcGxlLmNvbS9hP2I9MQ</code></td><td>URL-safe base64. Also not encryption.</td></tr>
+      </tbody>
+    </table>
+    <p>A fragment (<code>#section</code>) is never encoded. It stays on the proxy URL so in-page anchors and <code>location.hash</code> work natively. Changing the codec breaks proxied links that people bookmarked under the old one.</p>
+
+    <h2 id="https">HTTPS</h2>
+    <p>Service workers need a secure context, so any deployment that isn't localhost must use HTTPS. The simplest setup is to terminate TLS in OpenResty itself:</p>
+    <pre><code>server {
+    listen 443 ssl;
+    http2 on;
+    server_name proxy.example.net;
+    ssl_certificate     /etc/letsencrypt/live/proxy.example.net/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/proxy.example.net/privkey.pem;
+    # ... the same root / locations as the :8080 server block ...
+}</code></pre>
+    <p>When the connection is HTTPS, the session cookie is marked <code>Secure</code>, and the client runtime opens WebSockets with <code>wss://</code>.</p>
+
+    <h2 id="reverse-proxy">Behind a reverse proxy</h2>
+    <p>If Caddy, Traefik, Cloudflare or another nginx sits in front:</p>
+    <ul>
+      <li>Forward WebSocket upgrades for <code>/butter/ws</code>.</li>
+      <li>Keep the original <code>Host</code> header. The same-origin check compares <code>Origin</code> with <code>Host</code>.</li>
+      <li>Send <code>X-Forwarded-Proto: https</code> so the session cookie gets <code>Secure</code>.</li>
+      <li>Configure <code>set_real_ip_from</code> / <code>real_ip_header</code> in <code>nginx.conf</code>. Otherwise every visitor shares the front proxy's address and the rate limiter treats them as one client.</li>
+      <li>Don't let the front proxy buffer or cache <code>/butter/fetch</code> responses. They are per-user and are sent with <code>Cache-Control: no-store</code>.</li>
+      <li>Don't let the front proxy merge slashes or decode <code>%2F</code> in <code>/butter/go/</code> paths.</li>
+    </ul>
+
+    <h2 id="hardening">Hardening checklist</h2>
+    <ul>
+      <li>Keep <code>guard.allow_private = false</code>. This is what stops visitors reaching <code>169.254.169.254</code>, your router or <code>localhost</code>.</li>
+      <li>Run OpenResty as an unprivileged user, and firewall outbound traffic from the host if you can.</li>
+      <li>Use <code>guard.allowed_hosts</code> if the proxy is only meant for a few sites.</li>
+      <li>Put authentication in front (HTTP basic auth on the whole <code>server</code> block, or your reverse proxy's SSO). butter-col has no accounts of its own.</li>
+      <li>Watch <code>.butter/logs/error.log</code> for <code>butter_cookies is full</code> warnings.</li>
+      <li>Keep OpenResty updated. The Windows build bundles OpenSSL 1.1.1w, which is past end-of-life. Prefer a Linux deployment for anything public.</li>
+      <li>Read <a href="/known-issues.html">Known issues</a>, especially the security section, before you invite anyone else.</li>
+    </ul>
+
+    <h2 id="troubleshooting">Troubleshooting</h2>
+    <dl class="ref">
+      <dt>nginx: [emerg] … cacert.pem … No such file</dt>
+      <dd>The CLI downloads the bundle on <code>server start</code>; if that failed (no internet), run <code>npx butter-col fetch-ca</code> later, or pass <code>--cacert /etc/ssl/certs/ca-certificates.crt</code>.</dd>
+      <dt>bind() to 0.0.0.0:8080 failed</dt>
+      <dd>Something else is on port 8080, possibly an earlier butter-col. Run <code>npx butter-col server stop</code>, or start with <code>--port</code>.</dd>
+      <dt>config.transports / config.default_transport errors at startup</dt>
+      <dd>The transport list is validated when the server starts. Names must be unique, lower-case and match what the script registers, and <code>default_transport</code> must be one of them.</dd>
+      <dt>module 'resty.dns.resolver' not found (Windows)</dt>
+      <dd>nginx.exe was started from the wrong directory. Use <code>butter-col server start</code>, which runs it from its own directory, or <code>cd</code> into the OpenResty directory and pass an absolute <code>-p</code>.</dd>
+      <dt>"Starting butter-col…" never finishes</dt>
+      <dd>Service workers are unavailable. Check you're on <code>https://</code> or <code>localhost</code>, that you're not in a private window that blocks them, and that DevTools → Application doesn't show an error for <code>/butter/sw.js</code>.</dd>
+      <dt>"The service worker is installed but is not controlling this page"</dt>
+      <dd>Usually a hard reload (Ctrl+Shift+R), which bypasses service workers by design. Do a normal reload.</dd>
+      <dt>A transport shows "(failed to load)" in the launcher</dt>
+      <dd>The service worker couldn't <code>importScripts()</code> its URL. Check that <code>/butter/transports/&lt;name&gt;.js</code> returns the script (run <code>butter-col transport add</code>, then reload the server). Look for <code>[butter] could not load transport</code> in the service worker's console.</dd>
+      <dt>No transport named "…" is registered</dt>
+      <dd>The script loaded but registered a different name. The name in <code>butter.config.lua</code> must equal the one passed to <code>registerTransport()</code>.</dd>
+      <dt>TRANSPORT_UNREACHABLE</dt>
+      <dd>The active transport couldn't reach its backend. For <code>butter</code> that's <code>/butter/fetch</code> on this server; for <code>bare</code> it's the configured Bare server. Check that the backend is up and that nothing in front of it rejects the request.</dd>
+      <dt>BAD_TRANSPORT_RESPONSE</dt>
+      <dd>The backend answered in an unexpected format. For <code>butter</code> this usually means a front proxy served its own error page; for <code>bare</code>, that the server isn't a Bare v3 server or hides the <code>X-Bare-*</code> headers from cross-origin readers.</dd>
+      <dt>BARE_… codes</dt>
+      <dd>Errors reported by a Bare server that butter-col has no equivalent for, such as <code>BARE_FORBIDDEN_BARE_HEADER</code>. See the Bare server's own logs.</dd>
+      <dt>DNS_FAILURE</dt>
+      <dd>The host doesn't resolve with the configured <code>dns.nameservers</code>, or they're unreachable from the server. Failures are cached for <code>dns.negative_ttl</code> seconds.</dd>
+      <dt>BLOCKED_ADDRESS</dt>
+      <dd>The host resolves to a private or reserved address. That's intended; see <code>guard.allow_private</code>.</dd>
+      <dt>UPSTREAM_UNREACHABLE</dt>
+      <dd>Connection refused or reset, or the upstream certificate failed verification. The exact reason is in <code>.butter/logs/error.log</code> (look for <code>upstream SSL certificate verify error</code>).</dd>
+      <dt>FORBIDDEN_ORIGIN</dt>
+      <dd>The transport was called from a page on a different origin. If you serve the docs from a different host than the proxy, that's the cause.</dd>
+      <dt>RATE_LIMITED</dt>
+      <dd>More than <code>rate_limit.requests</code> requests in one window from one address. Raise the limit, or fix the real-IP setup behind a reverse proxy.</dd>
+      <dt>A site loads but buttons do nothing</dt>
+      <dd>Open the DevTools console. Errors mentioning <code>__butter$</code> point to a rewriter bug. Please report the site and the error; see <a href="/known-issues.html">Known issues</a> for the usual suspects.</dd>
+    </dl>
+
+    <h2 id="faq">FAQ</h2>
+    <h3>Is this a VPN? Does it hide my IP?</h3>
+    <p>Sites see the server's IP for everything that goes through the transport. But anything the runtime can't route still leaves from your browser directly; WebRTC is the main example. Treat butter-col as a convenience proxy, not as an anonymity tool.</p>
+    <h3>Why OpenResty instead of Node for the server?</h3>
+    <p>nginx already streams, pools connections, verifies TLS and handles WebSocket upgrades very well. The Lua code only decides <em>whether</em> and <em>where</em> to connect, and then lets nginx do the work.</p>
+    <h3>Can I use Bare, Wisp or my own backend?</h3>
+    <p>Yes, that's what transports are for. <code>@axis-network/bare-transport</code> talks to Bare v3 servers. Wisp would need a transport that wraps a client-side TLS library, such as Mercury Workshop's epoxy or libcurl.js. Anything else can be written against <a href="/custom-transports.html">the transport API</a>. butter-col's transport system plays the role that bare-mux plays for Scramjet, but it's built into butter-col rather than being a separate SharedWorker.</p>
+    <h3>Can I embed the proxy in an iframe on another site?</h3>
+    <p>Partly. The proxied page works, but <code>top.location</code> reads and frame-busting scripts touch the real cross-origin top window. The runtime can't patch that window.</p>
+    <h3>Where are my cookies?</h3>
+    <p>It depends on the transport. With <code>butter</code>, cookies are in the server's shared memory, keyed by your <code>butter_sid</code> session cookie; the old jar expires after <code>cookies.session_ttl</code>. With <code>"client"</code>-cookie transports such as <code>bare</code>, they're in the service worker's IndexedDB in your browser. Either way, clearing site data for the proxy origin starts from scratch. Switching transports also switches jars, so you may need to log in again.</p>
+  </article>
+</div>
+
+<footer class="site-footer">butter-col · inspired by the work of <a href="/credits.html">Mercury Workshop and Titanium Network</a></footer>
+</body>
+</html>

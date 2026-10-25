@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Packages · butter-col</title>
+<meta name="description" content="butter-col's npm packages under @axis-network: the proxy, the transport API, the Bare transport, the CLI and the Node API.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,650;1,9..144,600&family=Inter:wght@400;600&family=JetBrains+Mono&display=swap">
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" type="image/png" href="/butter-col.png">
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="/"><img src="/butter-col.png" alt="butter-col" width="77" height="40"></a>
+  <nav class="site-nav" aria-label="Main">
+    <a href="/">Launch</a>
+    <a href="/guide.html">Guide</a>
+    <a href="/packages.html" aria-current="page">Packages</a>
+    <a href="/transports.html">Transports</a>
+    <a href="/custom-transports.html">Build a transport</a>
+    <a href="/architecture.html">Architecture</a>
+    <a href="/formatter.html">Formatter</a>
+    <a href="/protocol.html">Protocol</a>
+    <a href="/known-issues.html">Known issues</a>
+    <a href="/credits.html">Credits</a>
+  </nav>
+</header>
+
+<div class="docs">
+  <nav class="toc" aria-label="On this page">
+    <h2>Packages</h2>
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#butter-col">@axis-network/butter-col</a></li>
+      <li><a href="#butter-transport">@axis-network/butter-transport</a></li>
+      <li><a href="#bare-transport">@axis-network/bare-transport</a></li>
+    </ul>
+    <h2>Use them</h2>
+    <ul>
+      <li><a href="#new-project">A new project</a></li>
+      <li><a href="#cli">CLI reference</a></li>
+      <li><a href="#node-api">Node API</a></li>
+      <li><a href="#controller">ButterController</a></li>
+      <li><a href="#static">Serverless deployments</a></li>
+      <li><a href="#express">With Express</a></li>
+    </ul>
+    <h2>Maintain them</h2>
+    <ul>
+      <li><a href="#workspace">The monorepo</a></li>
+      <li><a href="#releasing">Releasing</a></li>
+    </ul>
+  </nav>
+
+  <article class="prose">
+    <h1>Packages</h1>
+    <p class="lead">butter-col is published as npm packages under the <code>@axis-network</code> scope. The packages come from the npm workspaces in this repository.</p>
+
+    <h2 id="overview">Overview</h2>
+    <table>
+      <thead><tr><th>Package</th><th>What it is</th><th>You need it to…</th></tr></thead>
+      <tbody>
+        <tr><td><code>@axis-network/butter-col</code></td><td>The proxy: service worker, runtime, formatter, <code>ButterController</code>, the built-in <code>butter</code> transport, the Lua server and the <code>butter-col</code> CLI</td><td>Run butter-col</td></tr>
+        <tr><td><code>@axis-network/butter-transport</code></td><td>The transport API: types, registry, <code>TransportError</code>, testing kit</td><td>Write a transport</td></tr>
+        <tr><td><code>@axis-network/bare-transport</code></td><td>Transport for TompHTTP Bare v3 servers</td><td>Use a Bare server as the backend</td></tr>
+      </tbody>
+    </table>
+    <p>All three are ES modules, MIT-licensed, and require Node 20 or newer for the tooling. The browser files they ship work in Chrome/Edge 100+, Firefox 102+ and Safari 15.4+.</p>
+
+    <h2 id="butter-col">@axis-network/butter-col</h2>
+    <pre><code>npm install @axis-network/butter-col</code></pre>
+    <table>
+      <thead><tr><th>Entry</th><th>Contents</th></tr></thead>
+      <tbody>
+        <tr><td><code>@axis-network/butter-col</code></td><td><a href="#node-api">Node API</a>: paths, config helpers, nginx rendering, transport resolution</td></tr>
+        <tr><td><code>@axis-network/butter-col/controller</code></td><td><a href="#controller">ButterController</a> (also served at <code>/butter/controller.mjs</code>)</td></tr>
+        <tr><td><code>@axis-network/butter-col/formatter</code></td><td>The <a href="/formatter.html">formatter</a> (also served at <code>/butter/formatter.mjs</code>)</td></tr>
+        <tr><td><code>butter-col</code> (bin)</td><td>The <a href="#cli">CLI</a></td></tr>
+      </tbody>
+    </table>
+    <p>Files in the package:</p>
+    <pre><code>dist/          sw.js, client.js, controller.mjs, formatter.mjs, bootstrap.html,
+               transports/butter.js, types/ (.d.ts)
+server/        conf/*.template, conf/mime.types, lua/butter/*.lua, config.lua (defaults)
+site/          the frontend: served at /app/, and at / when you don't pass --site
+lib/ bin/      Node API and CLI</code></pre>
+
+    <h2 id="butter-transport">@axis-network/butter-transport</h2>
+    <pre><code>npm install @axis-network/butter-transport</code></pre>
+    <p>This is the only dependency a transport needs. It provides <code>registerTransport</code>, <code>createTransport</code>, <code>validateTransport</code>, <code>TransportError</code>, header helpers and the TypeScript types. <code>@axis-network/butter-transport/testing</code> adds <code>smokeTest</code>. The full reference is on <a href="/custom-transports.html#api">Build a transport</a>.</p>
+
+    <h2 id="bare-transport">@axis-network/bare-transport</h2>
+    <pre><code>npm install @axis-network/bare-transport
+npx butter-col transport add @axis-network/bare-transport</code></pre>
+    <ul>
+      <li><code>dist/bare-transport.js</code> (also exported as <code>./browser</code>) is the script to serve.</li>
+      <li>The main entry exports <code>createBareTransport</code> and its helpers without registering anything.</li>
+    </ul>
+    <p>Options are documented on <a href="/transports.html#bare">Transports</a>.</p>
+
+    <h2 id="new-project">A new project</h2>
+    <pre><code>mkdir my-proxy &amp;&amp; cd my-proxy
+npm init -y
+npm install @axis-network/butter-col @axis-network/bare-transport
+
+npx butter-col transport add @axis-network/bare-transport
+cp node_modules/@axis-network/butter-col/server/config.lua butter.config.lua   # then edit it
+npx butter-col server start --site public</code></pre>
+    <p>The first <code>server start</code> downloads the CA bundle. It renders everything into <code>.butter/</code>: the nginx config, logs, <code>cacert.pem</code> and the served transports. Add <code>.butter/</code> to <code>.gitignore</code>, and commit <code>butter.config.lua</code>, <code>butter-transports/</code> and your site.</p>
+    <p>OpenResty must be installed. On Windows, unzip <code>openresty-&lt;version&gt;-win64.zip</code> into <code>.tools/</code> in the project (or a parent directory), or pass <code>--openresty</code>.</p>
+
+    <h2 id="cli">CLI reference</h2>
+    <dl class="ref">
+      <dt>butter-col server start [options]</dt>
+      <dd>Render the config into the runtime directory, copy the transports into it, download the CA bundle if it's missing, and run OpenResty in the foreground. Ctrl+C stops it.</dd>
+      <dt>butter-col server reload | test | stop [options]</dt>
+      <dd><code>reload</code> re-renders the config and reloads without dropping connections; cookie jars survive. <code>test</code> re-renders and runs <code>nginx -t</code>. <code>stop</code> stops the server. Pass the same options you started with.</dd>
+      <dt>butter-col fetch-ca [--runtime .butter]</dt>
+      <dd>Download Mozilla's CA bundle (via curl.se) to <code>&lt;runtime&gt;/cacert.pem</code>.</dd>
+      <dt>butter-col transport add &lt;package-or-file&gt; [--name n] [--transports dir]</dt>
+      <dd>Copy a transport's browser script to <code>butter-transports/&lt;name&gt;.js</code>. The name comes from the package's <code>"butter.transport"</code> field, or from <code>--name</code>.</dd>
+      <dt>butter-col transport list</dt>
+      <dd>Show the built-in and added transports.</dd>
+      <dt>butter-col static &lt;outdir&gt; [--config butter.static.json] [--site dir]</dt>
+      <dd>Build a <a href="#static">serverless deployment</a>.</dd>
+      <dt>butter-col paths</dt>
+      <dd>Print the package's paths as JSON.</dd>
+    </dl>
+    <table>
+      <thead><tr><th>Option</th><th>Default</th></tr></thead>
+      <tbody>
+        <tr><td><code>--port</code></td><td><code>8080</code> (anything nginx's <code>listen</code> accepts, e.g. <code>127.0.0.1:8080</code>)</td></tr>
+        <tr><td><code>--site</code></td><td>The package's frontend (which is also always at <code>/app/</code>)</td></tr>
+        <tr><td><code>--config</code></td><td><code>./butter.config.lua</code> if it exists, otherwise the package default</td></tr>
+        <tr><td><code>--runtime</code></td><td><code>./.butter</code></td></tr>
+        <tr><td><code>--transports</code></td><td><code>./butter-transports</code></td></tr>
+        <tr><td><code>--cacert</code></td><td><code>&lt;runtime&gt;/cacert.pem</code></td></tr>
+        <tr><td><code>--openresty</code></td><td><code>$OPENRESTY</code>, then <code>.tools/openresty-*</code>, then <code>openresty</code> on PATH</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="node-api">Node API</h2>
+    <pre><code>import {
+  distPath, transportsPath, serverPath, luaPath, sitePath, defaultConfigPath, version,
+  createPublicConfig, createConfigScript, renderServerConfig, resolveTransport, findOpenResty,
+} from "@axis-network/butter-col";</code></pre>
+    <dl class="ref">
+      <dt>distPath · transportsPath · serverPath · luaPath · sitePath · defaultConfigPath</dt>
+      <dd>Absolute paths inside the installed package, like Ultraviolet's <code>uvPath</code> or Scramjet's <code>scramjetPath</code>.</dd>
+      <dt>createPublicConfig({ prefix?, codec?, transports, defaultTransport? })</dt>
+      <dd>Build the object that <code>/butter/config.js</code> contains, with validation, for deployments without the Lua server.</dd>
+      <dt>createConfigScript(publicConfig)</dt>
+      <dd>The JavaScript text of <code>/butter/config.js</code>.</dd>
+      <dt>renderServerConfig({ listen?, siteRoot?, configFile?, runtimeDir, cacert })</dt>
+      <dd>The rendered <code>nginx.conf</code>, <code>butter-proxy.conf</code> and <code>mime.types</code>, if you manage OpenResty yourself.</dd>
+      <dt>resolveTransport(specifier, from?)</dt>
+      <dd>Find a transport package's browser script: <code>{ name, file, packageName, version }</code>.</dd>
+      <dt>findOpenResty(cwd?)</dt>
+      <dd>The OpenResty binary the CLI would use.</dd>
+    </dl>
+
+    <h2 id="controller">ButterController</h2>
+    <p>The page-side API, for launchers and your own UI:</p>
+    <pre><code>import { ButterController } from "/butter/controller.mjs";
+
+const butter = await new ButterController({
+  serviceWorker: "/butter/sw.js",   // defaults shown
+  scope: "/",
+  config: "/butter/config.js",
+  searchEngine: "https://duckduckgo.com/?q=%s",
+}).init();
+
+butter.go("example.com");                     // navigate through the proxy
+butter.encodeUrl("https://example.com/");     // → "https://proxy/butter/go/https%3A%2F%2Fexample.com%2F"
+butter.decodeUrl(location.href);
+butter.resolveInput("cute butter");           // → search URL
+
+butter.transports;                            // [{ name, url, options }] from the config
+await butter.getTransport();                  // { active: { name, url, options }, available: [{ name, url, loaded }] }
+await butter.setTransport("bare", { server: "https://bare.example.com/" });
+await butter.resetTransport();</code></pre>
+    <p><code>init()</code> rejects with a readable message if the browser has no service workers or the page isn't a secure context. All transport calls go to the service worker over a <code>MessageChannel</code>.</p>
+
+    <h2 id="static">Serverless deployments</h2>
+    <p>With a transport that doesn't need butter-col's server (<code>bare</code> today), butter-col can be deployed as static files to GitHub Pages, Netlify, Cloudflare Pages, S3 and so on:</p>
+    <pre><code>// butter.static.json
+{
+  "prefix": "/butter/go/",
+  "codec": "xor",
+  "transports": [
+    { "name": "bare", "options": { "server": "https://bare.example.com/" } }
+  ],
+  "defaultTransport": "bare"
+}</code></pre>
+    <pre><code>npx butter-col transport add @axis-network/bare-transport
+npx butter-col static public --config butter.static.json --site my-site</code></pre>
+    <p>The output:</p>
+    <pre><code>public/
+  index.html app.js app.css your site (or the frontend)
+  404.html                  bootstrap page: static hosts serve it for /butter/go/… URLs
+  butter/sw.js client.js controller.mjs formatter.mjs bootstrap.html
+  butter/config.js          generated from butter.static.json
+  butter/transports/        butter.js + everything in butter-transports/</code></pre>
+    <ul>
+      <li><strong>HTTPS:</strong> serve over HTTPS.</li>
+      <li><strong>Service worker scope:</strong> the service worker registers with scope <code>/</code>, which requires the header <code>Service-Worker-Allowed: /</code> on <code>/butter/sw.js</code>. Hosts that can't set headers can register with <code>scope: "/butter/"</code> instead (<code>new ButterController({ scope: "/butter/" })</code>); the bootstrap page falls back to it automatically. Proxied pages and their requests still work. The difference is that a <em>navigation</em> that escaped rewriting to a path outside <code>/butter/</code> reaches the host instead of the service worker.</li>
+      <li><strong>Cookies:</strong> with no server, <code>document.cookie</code> and all cookies are kept by the service worker's client jar, so pick <code>"client"</code> cookie transports.</li>
+      <li><strong>Hosts that return 404:</strong> some static hosts send the <code>404.html</code> page with status 404, which is fine. The bootstrap installs the service worker and reloads, and the service worker answers from then on.</li>
+    </ul>
+
+    <h2 id="express">With Express</h2>
+    <p>If you'd rather serve the files from Node than from OpenResty, pair the static config with a transport that doesn't need the Lua server:</p>
+    <pre><code>import express from "express";
+import { distPath, createPublicConfig, createConfigScript } from "@axis-network/butter-col";
+
+const config = createPublicConfig({
+  transports: [{ name: "bare", url: "/butter/transports/bare.js", options: { server: "/bare/" } }],
+});
+
+const app = express();
+app.get("/butter/config.js", (req, res) =&gt; res.type("js").send(createConfigScript(config)));
+app.get("/butter/sw.js", (req, res) =&gt; {
+  res.set("Service-Worker-Allowed", "/").sendFile("sw.js", { root: distPath });
+});
+app.use("/butter/transports/", express.static("butter-transports"));
+app.use("/butter/", express.static(distPath));
+app.use("/butter/go/", (req, res) =&gt; res.sendFile("bootstrap.html", { root: distPath }));
+// mount a Bare server at /bare/ (e.g. @tomphttp/bare-server-node) and your site at /
+app.listen(8080);</code></pre>
+    <div class="note warn">The built-in <code>butter</code> transport, its cookie jar and its SSRF guard live in the Lua server. Under Express you only get what your transport's backend provides.</div>
+
+    <h2 id="workspace">The monorepo</h2>
+    <pre><code>butter-col/
+├── package.json              private root: npm workspaces
+├── butter.config.lua         config used by `npm start` in this repo
+├── packages/
+│   ├── butter-transport/     @axis-network/butter-transport  (TypeScript)
+│   ├── butter-col/           @axis-network/butter-col         (TS service worker, JS formatter &amp; runtime, Lua server)
+│   └── bare-transport/       @axis-network/bare-transport     (TypeScript)
+├── examples/
+│   └── transport-template/   the "logged" transport (private, not published)
+└── docs/                     this website</code></pre>
+    <p>The packages were created with <code>npm init --scope=@axis-network</code> inside the workspace. From the root:</p>
+    <table>
+      <thead><tr><th>Command</th><th>Does</th></tr></thead>
+      <tbody>
+        <tr><td><code>npm install</code></td><td>Links the workspaces together</td></tr>
+        <tr><td><code>npm run build</code></td><td>Builds every package in dependency order</td></tr>
+        <tr><td><code>npm test</code> · <code>npm run test:lua</code></td><td>Runs the JS and Lua tests</td></tr>
+        <tr><td><code>npm run check</code></td><td>Build, typecheck and all tests</td></tr>
+        <tr><td><code>npm start</code> · <code>npm stop</code> · <code>npm run reload</code></td><td>Runs this site with <code>butter.config.lua</code> through the CLI</td></tr>
+      </tbody>
+    </table>
+    <p>To add a package, run <code>npm init -w ./packages/&lt;name&gt; --scope=@axis-network</code>, then copy the <code>publishConfig</code>, <code>exports</code> and <code>files</code> conventions from an existing package.</p>
+
+    <h2 id="releasing">Releasing</h2>
+    <ol>
+      <li>Bump the versions. Bump <code>@axis-network/butter-transport</code> first if its API changed, and keep the dependent packages' <code>^</code> ranges in step.</li>
+      <li>Run <code>npm run check</code>.</li>
+      <li>Publish in dependency order: <code>npm publish -w @axis-network/butter-transport</code>, then <code>-w @axis-network/butter-col</code>, then <code>-w @axis-network/bare-transport</code>. Each package has <code>publishConfig.access = "public"</code>, because scoped packages are private by default.</li>
+      <li>Check the published contents with <code>npm pack --dry-run -w &lt;package&gt;</code> before the first release.</li>
+    </ol>
+  </article>
+</div>
+
+<footer class="site-footer">butter-col · inspired by the work of <a href="/credits.html">Mercury Workshop and Titanium Network</a></footer>
+</body>
+</html>

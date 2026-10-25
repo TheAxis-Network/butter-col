@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>butter-col</title>
+<meta name="description" content="butter-col: a service-worker web proxy with a built-in transport and an OpenResty (Lua) backend.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,650;1,9..144,600&family=Inter:wght@400;600&family=JetBrains+Mono&display=swap">
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" type="image/png" href="/butter-col.png">
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="/"><img src="/butter-col.png" alt="butter-col" width="77" height="40"></a>
+  <nav class="site-nav" aria-label="Main">
+    <a href="/" aria-current="page">Launch</a>
+    <a href="/guide.html">Guide</a>
+    <a href="/packages.html">Packages</a>
+    <a href="/transports.html">Transports</a>
+    <a href="/custom-transports.html">Build a transport</a>
+    <a href="/architecture.html">Architecture</a>
+    <a href="/formatter.html">Formatter</a>
+    <a href="/protocol.html">Protocol</a>
+    <a href="/known-issues.html">Known issues</a>
+    <a href="/credits.html">Credits</a>
+  </nav>
+</header>
+
+<main>
+  <section class="hero">
+    <img class="hero-logo" src="/butter-col.png" alt="" width="694" height="359">
+    <h1>The web, <em>spread smooth</em> through one origin.</h1>
+    <p>butter-col is a service-worker web proxy with its own built-in transport. Type an address and browse it through this server.</p>
+
+    <form class="omnibox" id="omnibox" autocomplete="off">
+      <label for="target" class="visually-hidden">Address or search</label>
+      <input id="target" name="target" type="text" inputmode="url" placeholder="example.com or a search" autofocus spellcheck="false">
+      <button class="button" type="submit">Go</button>
+    </form>
+    <div class="transport-row">
+      <label for="transport">Transport</label>
+      <select id="transport" disabled></select>
+    </div>
+    <p class="status" id="status" role="status" aria-live="polite"></p>
+    <div class="cta-row">
+      <a href="/app/"><strong>Open the full browser</strong></a>
+      <a href="/guide.html">Getting started</a>
+      <a href="/architecture.html">How it works</a>
+      <a href="/known-issues.html">Known issues</a>
+    </div>
+  </section>
+
+  <section class="features" aria-label="How it is built">
+    <article class="feature">
+      <div class="lang">Lua · OpenResty</div>
+      <h2>Transport server</h2>
+      <p>Validates every target, resolves and pins DNS against private ranges, keeps an HttpOnly cookie jar per session and streams responses through nginx.</p>
+    </article>
+    <article class="feature">
+      <div class="lang">TypeScript</div>
+      <h2>Service worker</h2>
+      <p>Intercepts proxied pages, rebuilds Referer, Origin and Sec-Fetch headers, and hands every request to the active <a href="/transports.html">transport</a>: the built-in one, Bare, or one you <a href="/custom-transports.html">write yourself</a>.</p>
+    </article>
+    <article class="feature">
+      <div class="lang">JavaScript</div>
+      <h2>Formatter</h2>
+      <p>Rewrites HTML, CSS and JavaScript, then installs runtime hooks for <code>location</code>, the DOM, fetch, WebSockets, cookies and storage.</p>
+    </article>
+    <article class="feature">
+      <div class="lang">npm · @axis-network</div>
+      <h2>Packages</h2>
+      <p><code>@axis-network/butter-col</code> with its CLI, <code>@axis-network/butter-transport</code> for transport authors, and <code>@axis-network/bare-transport</code>. Start with the <a href="/guide.html">guide</a> or <a href="/packages.html">packages</a>.</p>
+    </article>
+  </section>
+</main>
+
+<footer class="site-footer">
+  butter-col · inspired by the work of <a href="/credits.html">Mercury Workshop and Titanium Network</a> ·
+  <a href="/butter/health">server health</a>
+</footer>
+
+<script type="module" src="/launcher.js"></script>
+</body>
+</html>

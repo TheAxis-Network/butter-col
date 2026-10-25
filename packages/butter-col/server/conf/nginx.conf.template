@@ -1,0 +1,152 @@
+# butter-col: OpenResty configuration template.
+#
+# `butter-col server start` renders this into <runtime>/conf/nginx.conf,
+# replacing each double-brace placeholder with an absolute path or value:
+#
+#   {{LISTEN}}       listen address, e.g. 8080
+#   {{LUA_DIR}}      this package's server/lua
+#   {{CONFIG_FILE}}  your butter.config.lua (or the package default)
+#   {{SITE_ROOT}}    the site served at / (launcher, docs, your app)
+#   {{APP_DIR}}      this package's built-in frontend (site/), served at /app/
+#   {{DIST_DIR}}     this package's dist (service worker, runtime, ...)
+#   {{RUNTIME_DIR}}  the runtime directory (logs, transports, cacert.pem)
+#
+# The /butter/ paths below must match `base` in the Lua configuration.
+
+worker_processes auto;
+error_log logs/error.log notice;
+pid logs/nginx.pid;
+
+events {
+    worker_connections 4096;
+}
+
+http {
+    include mime.types;
+    default_type application/octet-stream;
+    charset utf-8;
+    charset_types text/css text/plain text/javascript application/javascript application/json image/svg+xml;
+    sendfile on;
+    server_tokens off;
+
+    # Target URLs travel in headers, so access logs never contain browsing history.
+    access_log logs/access.log;
+
+    lua_package_path "{{LUA_DIR}}/?.lua;{{LUA_DIR}}/?/init.lua;;";
+    lua_shared_dict butter_dns     10m;
+    lua_shared_dict butter_cookies 64m;
+    lua_shared_dict butter_limit   10m;
+
+    init_by_lua_block {
+        require("butter").init([==[{{CONFIG_FILE}}]==])
+    }
+
+    # X-Butter-Headers carries the page's request headers as JSON.
+    large_client_header_buffers 8 64k;
+    client_max_body_size 100m;
+
+    server {
+        listen {{LISTEN}};
+        server_name _;
+
+        root {{SITE_ROOT}};
+        index index.html;
+
+        location / {
+            try_files $uri $uri/ =404;
+        }
+
+        # The built-in frontend, always available (also served at / when no
+        # --site is given).
+        location = /app {
+            return 301 /app/;
+        }
+        location ^~ /app/ {
+            alias {{APP_DIR}}/;
+            index index.html;
+            add_header Cache-Control "no-cache" always;
+        }
+
+        # --- butter-col endpoints --------------------------------------------
+
+        location = /butter/sw.js {
+            alias {{DIST_DIR}}/sw.js;
+            add_header Service-Worker-Allowed "/" always;
+            add_header Cache-Control "no-cache" always;
+        }
+
+        location = /butter/config.js {
+            content_by_lua_block { require("butter.transport").config_js() }
+        }
+
+        location = /butter/health {
+            content_by_lua_block { require("butter.transport").health() }
+        }
+
+        location = /butter/cookie {
+            client_max_body_size 16k;
+            client_body_buffer_size 16k;
+            content_by_lua_block { require("butter.transport").cookie() }
+        }
+
+        location = /butter/fetch {
+            set $butter_scheme "";
+            set $butter_addr "";
+            set $butter_uri "";
+            set $butter_host "";
+            set $butter_sni "";
+            access_by_lua_block { require("butter.transport").access_fetch() }
+
+            include butter-proxy.conf;
+            proxy_set_header Connection "";
+            proxy_read_timeout 120s;
+            proxy_send_timeout 60s;
+
+            header_filter_by_lua_block { require("butter.transport").header_filter_fetch() }
+            error_page 502 504 @butter_upstream_error;
+        }
+
+        location = /butter/ws {
+            set $butter_scheme "";
+            set $butter_addr "";
+            set $butter_uri "";
+            set $butter_host "";
+            set $butter_sni "";
+            access_by_lua_block { require("butter.transport").access_ws() }
+
+            include butter-proxy.conf;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_read_timeout 1h;
+            proxy_send_timeout 1h;
+
+            header_filter_by_lua_block { require("butter.transport").header_filter_ws() }
+            error_page 502 504 @butter_upstream_error;
+        }
+
+        location @butter_upstream_error {
+            content_by_lua_block { require("butter.transport").upstream_error() }
+        }
+
+        # Transport scripts: the built-in ones plus any added with
+        # `butter-col transport add`, copied here at startup.
+        location ^~ /butter/transports/ {
+            root {{RUNTIME_DIR}}/www;
+            add_header Cache-Control "no-cache" always;
+        }
+
+        # Proxied URLs only reach the server when the service worker is not
+        # running yet; the bootstrap page installs it and reloads.
+        location ^~ /butter/go/ {
+            root {{DIST_DIR}};
+            rewrite ^ /bootstrap.html break;
+            add_header Cache-Control "no-store" always;
+        }
+
+        # Built assets: client.js, controller.mjs, formatter.mjs, source maps.
+        location ^~ /butter/ {
+            alias {{DIST_DIR}}/;
+            add_header Cache-Control "no-cache" always;
+        }
+    }
+}

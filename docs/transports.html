@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Transports · butter-col</title>
+<meta name="description" content="How butter-col's pluggable transports work, which ones exist, and how to configure and switch them.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,650;1,9..144,600&family=Inter:wght@400;600&family=JetBrains+Mono&display=swap">
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" type="image/png" href="/butter-col.png">
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="/"><img src="/butter-col.png" alt="butter-col" width="77" height="40"></a>
+  <nav class="site-nav" aria-label="Main">
+    <a href="/">Launch</a>
+    <a href="/guide.html">Guide</a>
+    <a href="/packages.html">Packages</a>
+    <a href="/transports.html" aria-current="page">Transports</a>
+    <a href="/custom-transports.html">Build a transport</a>
+    <a href="/architecture.html">Architecture</a>
+    <a href="/formatter.html">Formatter</a>
+    <a href="/protocol.html">Protocol</a>
+    <a href="/known-issues.html">Known issues</a>
+    <a href="/credits.html">Credits</a>
+  </nav>
+</header>
+
+<div class="docs">
+  <nav class="toc" aria-label="On this page">
+    <h2>Concepts</h2>
+    <ul>
+      <li><a href="#what">What a transport is</a></li>
+      <li><a href="#where">Where transports run</a></li>
+      <li><a href="#cookies">Cookie modes</a></li>
+    </ul>
+    <h2>Transports</h2>
+    <ul>
+      <li><a href="#catalogue">Catalogue</a></li>
+      <li><a href="#butter">butter (built in)</a></li>
+      <li><a href="#bare">bare</a></li>
+      <li><a href="#logged">logged (template)</a></li>
+      <li><a href="#axis">Axis Network transports</a></li>
+    </ul>
+    <h2>Using them</h2>
+    <ul>
+      <li><a href="#install">Installing a transport</a></li>
+      <li><a href="#configure">Offering transports</a></li>
+      <li><a href="#switch">Switching at runtime</a></li>
+      <li><a href="#static">Without the Lua server</a></li>
+    </ul>
+  </nav>
+
+  <article class="prose">
+    <h1>Transports</h1>
+    <p class="lead">A transport is the part of butter-col that actually moves bytes between the proxy and the internet. It's pluggable: the same service worker, rewriter and runtime can run on top of butter-col's own Lua server, a Bare server, or anything else someone writes a transport for.</p>
+
+    <h2 id="what">What a transport is</h2>
+    <p>butter-col decides <em>what</em> to request: the URL, method, headers and body, after rewriting Referer, Origin and Sec-Fetch-*. It also decides what to do with the answer (rewrite HTML, CSS and JS, inject the runtime). The transport only decides <em>how the request travels</em>. Scramjet and Ultraviolet split things the same way with bare-mux: Scramjet can run over a Bare server or over Wisp (through epoxy or libcurl.js) without changing the proxy itself.</p>
+    <p>In code, a transport is an object with:</p>
+    <ul>
+      <li><code>meta</code>: its name, and facts butter-col needs (cookie mode, WebSocket support).</li>
+      <li><code>request()</code>: perform one HTTP request.</li>
+      <li><code>connect()</code>: optional; open a WebSocket.</li>
+      <li><code>init()</code> and <code>destroy()</code>: optional lifecycle hooks.</li>
+    </ul>
+    <p>It's registered under a name with <code>registerTransport()</code> from <a href="/packages.html#butter-transport"><code>@axis-network/butter-transport</code></a>. The full contract is on <a href="/custom-transports.html">Build a transport</a>.</p>
+
+    <h2 id="where">Where transports run</h2>
+    <p>A transport's script is a classic script. butter-col loads <strong>every configured transport</strong> into each realm that might need one, and creates an instance there on first use:</p>
+    <table>
+      <thead><tr><th>Realm</th><th>Loaded by</th><th>Used for</th></tr></thead>
+      <tbody>
+        <tr><td>Service worker</td><td><code>importScripts()</code> at startup</td><td>All HTTP traffic of proxied pages: navigations, subresources, <code>fetch</code>, XHR</td></tr>
+        <tr><td>Proxied pages</td><td><code>&lt;script&gt;</code> tags injected at the top of <code>&lt;head&gt;</code></td><td>WebSockets (they never pass through a service worker)</td></tr>
+        <tr><td>Proxied workers</td><td>The prelude prepended to the worker script</td><td>WebSockets opened by workers</td></tr>
+      </tbody>
+    </table>
+    <p>Loading all of them, not only the active one, lets transports wrap or fall back to each other. The <a href="#logged">logged</a> template wraps another transport this way.</p>
+
+    <h2 id="cookies">Cookie modes</h2>
+    <p>Every transport declares who keeps cookies, in <code>meta.cookies</code>:</p>
+    <table>
+      <thead><tr><th>Mode</th><th>Who keeps the jar</th><th>What butter-col does</th></tr></thead>
+      <tbody>
+        <tr><td><code>"server"</code></td><td>The transport's backend. butter-col's Lua server keeps one jar per browser session.</td><td>Sends no <code>Cookie</code> header and ignores <code>Set-Cookie</code>. Asks for the <code>document.cookie</code> view through <code>context.wantDocumentCookies</code>.</td></tr>
+        <tr><td><code>"client"</code></td><td>butter-col's service worker, in IndexedDB (an RFC 6265 jar that mirrors the server's).</td><td>Adds <code>Cookie</code> to every request, stores <code>Set-Cookie</code> from every response, answers <code>document.cookie</code> writes itself, and supplies cookies for WebSocket handshakes.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="catalogue">Catalogue</h2>
+    <table>
+      <thead><tr><th>Transport</th><th>Package</th><th>Backend</th><th>Cookies</th><th>WebSockets</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td><a href="#butter"><code>butter</code></a></td><td>built into <code>@axis-network/butter-col</code></td><td>butter-col's OpenResty server</td><td>server</td><td>yes</td><td>Default. Tested end to end.</td></tr>
+        <tr><td><a href="#bare"><code>bare</code></a></td><td><code>@axis-network/bare-transport</code></td><td>Any TompHTTP Bare v3 server</td><td>client</td><td>yes</td><td>Unit-tested against a mocked server; not yet run against a real Bare server.</td></tr>
+        <tr><td><a href="#logged"><code>logged</code></a></td><td><code>examples/transport-template</code> (not published)</td><td>Wraps another transport</td><td>inherits</td><td>inherits</td><td>Template and debugging aid. Tested end to end.</td></tr>
+        <tr><td><code>svrls</code></td><td>Axis Network: <code>svrls-transport</code></td><td colspan="3">see <a href="#axis">below</a></td><td>Documentation pending</td></tr>
+        <tr><td><code>hubber</code></td><td>Axis Network: <code>hubber-transport</code></td><td colspan="3">see <a href="#axis">below</a></td><td>Documentation pending</td></tr>
+        <tr><td><code>feeral</code></td><td>Axis Network: <code>feeral-transport</code></td><td colspan="3">see <a href="#axis">below</a></td><td>Documentation pending</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="butter">butter (built in)</h2>
+    <p>The original transport, now one plugin among others. It talks to butter-col's Lua server:</p>
+    <ul>
+      <li><strong>HTTP:</strong> <code>&lt;method&gt; /butter/fetch</code>, with the target in <code>X-Butter-URL</code> and the headers in <code>X-Butter-Headers</code>.</li>
+      <li><strong>WebSockets:</strong> through <code>/butter/ws</code>.</li>
+    </ul>
+    <p>The server pins DNS against private networks, keeps the cookie jar, and lets nginx stream the traffic. The wire format is on <a href="/protocol.html">Protocol</a>.</p>
+    <table>
+      <thead><tr><th>Option</th><th>Default</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td><code>endpoint</code></td><td><code>config.transport.fetch</code> (<code>/butter/fetch</code>)</td><td>HTTP endpoint, relative to the proxy origin or absolute.</td></tr>
+        <tr><td><code>websocket</code></td><td><code>config.transport.ws</code> (<code>/butter/ws</code>)</td><td>WebSocket endpoint.</td></tr>
+      </tbody>
+    </table>
+    <p>Pointing <code>endpoint</code> and <code>websocket</code> at another butter-col server works, but its session cookie and same-origin check expect requests from its own origin. In practice, use the server that serves the pages.</p>
+
+    <h2 id="bare">bare</h2>
+    <p><code>@axis-network/bare-transport</code> speaks the <a href="https://github.com/tomphttp/specifications/blob/master/BareServerV3.md">TompHTTP Bare v3</a> protocol, the server type behind many Ultraviolet deployments.</p>
+    <ul>
+      <li><strong>HTTP</strong> goes to <code>&lt;server&gt;v3/</code> with <code>X-Bare-URL</code> and <code>X-Bare-Headers</code>. Header values over 3072 bytes are split into <code>X-Bare-Headers-N</code>, both ways, as the spec describes.</li>
+      <li><strong>WebSockets</strong> use the v3 handshake: a <code>connect</code> text frame, then an <code>open</code> message that carries the handshake's <code>Set-Cookie</code> values.</li>
+      <li><strong>Errors</strong> are mapped onto butter-col's codes. <code>HOST_NOT_FOUND</code> becomes <code>DNS_FAILURE</code>; <code>CONNECTION_REFUSED</code> and <code>CONNECTION_RESET</code> become <code>UPSTREAM_UNREACHABLE</code>.</li>
+    </ul>
+    <table>
+      <thead><tr><th>Option</th><th>Required</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td><code>server</code></td><td>yes</td><td>The Bare server's root, e.g. <code>"https://bare.example.com/"</code> or <code>"/bare/"</code>.</td></tr>
+      </tbody>
+    </table>
+    <div class="note warn">Bare servers keep no cookies, so this transport uses the service worker's <em>client</em> jar. A Bare server does no SSRF filtering that butter-col knows about either. Whoever runs that server decides what it may reach. If it is reachable by others, it's just as much an open proxy as butter-col's own server.</div>
+
+    <h2 id="logged">logged (template)</h2>
+    <p>The template in <code>examples/transport-template</code> is a real, working transport. It wraps another one and logs every request and WebSocket to the console:</p>
+    <pre><code>[logged → butter @ serviceworker] GET https://example.com/ → 200 28 ms
+[logged → butter @ window] WebSocket wss://chat.example/socket []</code></pre>
+    <table>
+      <thead><tr><th>Option</th><th>Default</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td><code>inner</code></td><td>The deployment's default transport, or <code>"butter"</code></td><td>Transport to wrap.</td></tr>
+        <tr><td><code>innerOptions</code></td><td>The inner transport's configured options</td><td>Options for it.</td></tr>
+      </tbody>
+    </table>
+    <p>Its meta (cookie mode, WebSocket support) is copied from the transport it wraps. Copy the folder to start your own transport; see <a href="/custom-transports.html#quick-start">Build a transport</a>.</p>
+
+    <h2 id="axis">Axis Network transports</h2>
+    <p>Axis Network, the group behind butter-col, maintains three official transports:</p>
+    <table>
+      <thead><tr><th>Transport</th><th>Focus, as described by Axis Network</th></tr></thead>
+      <tbody>
+        <tr><td><code>svrls-transport</code></td><td>Serverless. Runs from HTML files with inline JavaScript, and can also adapt to deployers that use servers.</td></tr>
+        <tr><td><code>hubber-transport</code></td><td>Stability over speed.</td></tr>
+        <tr><td><code>feeral-transport</code></td><td>Speed over stability.</td></tr>
+      </tbody>
+    </table>
+    <div class="note">Their source isn't public yet. Their options, backends, cookie modes and WebSocket behaviour will be documented here once it is available. Until then this page deliberately says nothing more about them than the descriptions above. They plug in exactly like any other transport (see <a href="#install">Installing a transport</a>), as long as each package declares a <code>"butter"</code> field in its <code>package.json</code>.</div>
+    <p>For <code>svrls-transport</code>, see <a href="#static">Without the Lua server</a>: <code>butter-col static</code> produces the kind of server-free deployment a serverless transport needs.</p>
+
+    <h2 id="install">Installing a transport</h2>
+    <pre><code>npm install @axis-network/bare-transport
+npx butter-col transport add @axis-network/bare-transport
+# → butter-transports/bare.js</code></pre>
+    <p><code>transport add</code> reads the package's <code>"butter"</code> field to find its browser script, then copies it into <code>./butter-transports/</code>. It works with any transport package (or a plain <code>.js</code> file). <code>butter-col server start</code> serves everything in that folder at <code>/butter/transports/&lt;name&gt;.js</code>, alongside the built-in <code>butter.js</code>.</p>
+
+    <h2 id="configure">Offering transports</h2>
+    <p>List the transports your deployment offers in <code>butter.config.lua</code>:</p>
+    <pre><code>return {
+  transports = {
+    { name = "butter" },
+    { name = "bare", options = { server = "https://bare.example.com/" } },
+    { name = "logged", options = { inner = "bare" } },
+  },
+  default_transport = "butter",
+}</code></pre>
+    <ul>
+      <li><code>name</code> must match the name the script registers.</li>
+      <li><code>url</code> is optional and defaults to <code>/butter/transports/&lt;name&gt;.js</code>. Set it to load a script from elsewhere.</li>
+      <li><code>options</code> is passed to the transport's factory as JSON. It's public: visitors can read it in <code>/butter/config.js</code>, so never put secrets in it.</li>
+      <li><code>default_transport</code> is used until a visitor picks another.</li>
+    </ul>
+    <p>The server validates the list at startup: names must be unique, and the default must be one of them. Reload with <code>npx butter-col server reload</code>.</p>
+
+    <h2 id="switch">Switching at runtime</h2>
+    <p>Visitors (or your launcher page) switch transports with <a href="/packages.html#controller">ButterController</a>, the way bare-mux's <code>setTransport</code> works for Scramjet:</p>
+    <pre><code>import { ButterController } from "/butter/controller.mjs";
+
+const butter = await new ButterController().init();
+const { active, available } = await butter.getTransport();
+
+await butter.setTransport("bare");                                   // configured options
+await butter.setTransport("bare", { server: "https://other.bare/" }); // custom options
+await butter.resetTransport();                                       // back to the default</code></pre>
+    <ul>
+      <li>The choice is stored in the service worker's IndexedDB, so it applies to this browser only and persists across reloads.</li>
+      <li>Only transports in the configuration can be selected, because only their scripts are loaded.</li>
+      <li>A transport that fails to start is rejected without being saved.</li>
+      <li>Pages that are already open keep using the old transport for WebSockets until they reload. HTTP switches immediately.</li>
+    </ul>
+    <p>The launcher on this site's <a href="/">home page</a> has a transport picker built this way.</p>
+
+    <h2 id="static">Without the Lua server</h2>
+    <p>Transports that don't need butter-col's server (such as <code>bare</code>) let you deploy butter-col as static files:</p>
+    <pre><code>// butter.static.json
+{
+  "codec": "xor",
+  "transports": [{ "name": "bare", "options": { "server": "https://bare.example.com/" } }]
+}</code></pre>
+    <pre><code>npx butter-col static public/ --config butter.static.json</code></pre>
+    <p>The <code>public/</code> folder then holds the following, ready for any static host:</p>
+    <ul>
+      <li><code>butter/</code>: the service worker, the runtime, the transports and a generated <code>config.js</code>.</li>
+      <li>A launcher.</li>
+      <li>A <code>404.html</code> that bootstraps <code>/butter/go/…</code> links.</li>
+    </ul>
+    <p>Details are in <a href="/packages.html#static">Packages → Serverless deployments</a>.</p>
+  </article>
+</div>
+
+<footer class="site-footer">butter-col · inspired by the work of <a href="/credits.html">Mercury Workshop and Titanium Network</a></footer>
+</body>
+</html>

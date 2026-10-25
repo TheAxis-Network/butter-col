@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Known issues · butter-col</title>
+<meta name="description" content="Known issues, limitations and likely bugs in butter-col, with workarounds.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,650;1,9..144,600&family=Inter:wght@400;600&family=JetBrains+Mono&display=swap">
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" type="image/png" href="/butter-col.png">
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="/"><img src="/butter-col.png" alt="butter-col" width="77" height="40"></a>
+  <nav class="site-nav" aria-label="Main">
+    <a href="/">Launch</a>
+    <a href="/guide.html">Guide</a>
+    <a href="/packages.html">Packages</a>
+    <a href="/transports.html">Transports</a>
+    <a href="/custom-transports.html">Build a transport</a>
+    <a href="/architecture.html">Architecture</a>
+    <a href="/formatter.html">Formatter</a>
+    <a href="/protocol.html">Protocol</a>
+    <a href="/known-issues.html" aria-current="page">Known issues</a>
+    <a href="/credits.html">Credits</a>
+  </nav>
+</header>
+
+<div class="docs">
+  <nav class="toc" aria-label="On this page">
+    <h2>Read first</h2>
+    <ul>
+      <li><a href="#status">Testing status</a></li>
+      <li><a href="#severity">Severity key</a></li>
+    </ul>
+    <h2>Issues</h2>
+    <ul>
+      <li><a href="#security">Security</a></li>
+      <li><a href="#isolation">Isolation &amp; privacy</a></li>
+      <li><a href="#transports">Transports</a></li>
+      <li><a href="#js">JavaScript rewriter</a></li>
+      <li><a href="#html">HTML &amp; CSS rewriter</a></li>
+      <li><a href="#runtime">Client runtime</a></li>
+      <li><a href="#sw">Service worker</a></li>
+      <li><a href="#cookies">Cookies &amp; sessions</a></li>
+      <li><a href="#server">Server</a></li>
+      <li><a href="#frontend">Frontend</a></li>
+      <li><a href="#compat">Site compatibility</a></li>
+      <li><a href="#platform">Platform</a></li>
+    </ul>
+    <h2>Help</h2>
+    <ul>
+      <li><a href="#reporting">Reporting a bug</a></li>
+    </ul>
+  </nav>
+
+  <article class="prose">
+    <h1>Known issues</h1>
+    <p class="lead">butter-col is young. Some of what follows are design limitations shared by every same-origin proxy, and some are likely bugs found while writing the code. All of it is listed here so nobody discovers it the hard way.</p>
+
+    <h2 id="status">Testing status</h2>
+    <div class="note warn">
+      <p><strong>What has been verified:</strong></p>
+      <ul>
+        <li>Formatter unit tests: codecs, URLs, srcset, CSS, JavaScript and HTML rewriting.</li>
+        <li>Cookie-jar tests, run on both the Lua jar and the service worker's TypeScript jar against the same cases.</li>
+        <li>Lua unit tests for URL parsing, IP ranges, header rules and configuration (including the transport list).</li>
+        <li>Bare transport tests against a mocked Bare v3 server.</li>
+        <li>TypeScript type-checking of every package.</li>
+        <li>End to end against OpenResty 1.27.1.2 on Windows: real HTTPS fetches with certificate verification, the private-address block, every static route, and the built <code>butter</code> and <code>logged</code> transport scripts. The transports were loaded into Node and smoke-tested over HTTP and over a WebSocket tunnel to a public echo server.</li>
+      </ul>
+      <p><strong>Not yet verified:</strong></p>
+      <ul>
+        <li>The full in-browser flow on real websites: service worker install, rewritten pages, the runtime hooks, the reimplemented <code>WebSocket</code> class, workers, forms, and cookies written by JavaScript.</li>
+        <li>Transport switching through <code>ButterController</code>.</li>
+        <li>The client-side cookie jar inside a real service worker.</li>
+        <li>The Bare transport against a real Bare server.</li>
+        <li>Firefox and Safari.</li>
+      </ul>
+      <p>Expect site-specific breakage until all of this has been exercised.</p>
+    </div>
+
+    <h2 id="severity">Severity key</h2>
+    <p>
+      <span class="badge security">security</span> can expose data or bypass a protection ·
+      <span class="badge high">high</span> breaks many sites or features ·
+      <span class="badge medium">medium</span> breaks some sites ·
+      <span class="badge low">low</span> edge case or cosmetic
+    </p>
+
+    <p class="where">Source paths on this page are relative to <code>packages/butter-col/</code>.</p>
+
+    <h2 id="security">Security</h2>
+
+    <div class="issue">
+      <h3><span class="badge security">security</span>No CORS or SameSite emulation between proxied sites</h3>
+      <p>Every request from a proxied page is sent with the session jar's cookies for the target. The service worker answers with a synthetic same-origin response, and the browser doesn't apply CORS checks to responses a service worker makes up. A malicious page opened through butter-col can therefore send authenticated requests to <em>any other site you're logged into through the proxy</em>, and read the responses. That includes <code>no-cors</code> requests, which would normally be opaque.</p>
+      <p class="where">Where: <code>src/sw/route.ts</code>, <code>src/sw/request.ts</code>, <code>butter/store.lua</code> and, for client-cookie transports, <code>src/sw/cookie-jar.ts</code> (the same problem, with the jar in the service worker). Fix direction: send cookies only for same-site requests or when SameSite allows, and enforce CORS in the service worker using the initiator's target origin.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge security">security</span>All proxied sites share one browser origin</h3>
+      <p>Proxied pages from different sites are same-origin with each other and with the docs. Any of them can script the others' frames and windows, and read IndexedDB, the Cache API and BroadcastChannel, which aren't namespaced. Only <code>localStorage</code> and <code>sessionStorage</code> are separated, and only for code that goes through the hooked getters. Every Ultraviolet-, Scramjet- and butter-col-style proxy has this property.</p>
+      <p class="where">Mitigation: only proxy sites you trust in the same browser profile, or give each user a separate profile.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge security">security</span>Site protections are removed</h3>
+      <p>CSP, <code>X-Frame-Options</code>, COOP/COEP/CORP, HSTS, SRI (<code>integrity</code>) and iframe <code>sandbox</code> are all stripped or neutralized so rewriting can work. Sites that rely on them for XSS or clickjacking protection lose it while proxied. Plain <code>http://</code> targets also appear "secure", because the proxy itself is HTTPS.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge security">security</span>It's an open proxy unless you add authentication</h3>
+      <p>The same-origin check stops <em>other websites</em> from using visitors' browsers, but by default (<code>allow_non_browser = true</code>) anyone who can reach the port can drive <code>/butter/fetch</code> with curl. The traffic leaves from your server's IP.</p>
+      <p class="where">Mitigation: put authentication in front, set <code>allow_non_browser = false</code>, restrict <code>guard.allowed_hosts</code>, and firewall the host.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge security">security</span>postMessage target origins are widened</h3>
+      <p><code>postMessage(msg, "https://specific.site")</code> is rewritten to the proxy origin, because every frame really is on the proxy origin. Any proxied frame can therefore receive messages meant for one particular site.</p>
+      <p class="where">Where: <code>src/client/hooks/window.js</code>.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge security">security</span>Browser permissions, passwords and autofill are per proxy, not per site</h3>
+      <p>Granting the camera, microphone, location or notifications to one proxied site grants it to every proxied site. Password managers save credentials for the proxy origin and may offer site A's password on site B.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge medium">medium</span>The server sees all proxied traffic in plaintext</h3>
+      <p>Upstream TLS ends at the server (unlike Wisp with client-side TLS through epoxy or libcurl.js). Whoever runs the server can read passwords and pages. That is by design, but users should know.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge low">low</span>Requests with more than 200 headers aren't fully cleaned</h3>
+      <p><code>access_fetch</code> clears incoming headers using <code>ngx.req.get_headers(200)</code>. Anything past the 200th header isn't cleared and is forwarded upstream. This only affects a client's own requests.</p>
+      <p class="where">Where: <code>butter/transport.lua</code> → <code>clear_request_headers</code>. Fix: reject requests with more headers than that.</p>
+    </div>
+
+    <h2 id="isolation">Isolation &amp; privacy</h2>
+
+    <div class="issue">
+      <h3><span class="badge high">high</span>WebRTC, WebTransport and some beacons bypass the proxy</h3>
+      <p>WebRTC isn't hooked. STUN requests leave from the browser and reveal the user's real IP, and media connects directly. WebTransport isn't proxied at all.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge medium">medium</span>IndexedDB, Cache API, BroadcastChannel, Web Locks and cookies on the proxy origin are shared</h3>
+      <p>These aren't namespaced per target origin, so two sites that use the same database or channel names collide, and either can read the other's data.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge low">low</span>Browser history, cache and DevTools show proxy URLs</h3>
+      <p>The codecs (<code>xor</code>, <code>base64</code>) only obscure the target. They aren't encryption.</p>
+    </div>
+
+    <h2 id="transports">Transports</h2>
+
+    <div class="issue">
+      <h3><span class="badge security">security</span>Proxied pages could switch your transport (mitigated)</h3>
+      <p>The service worker answers <code>postMessage</code> from any page on the proxy origin, and proxied pages are on that origin. A hostile site could have sent <code>butter:set-transport</code> with its own options, such as a Bare server it controls, and quietly routed the visitor's later traffic through it. The service worker now accepts transport changes only from pages that are <em>not</em> proxied (the launcher).</p>
+      <p>A page that tricks the browser into loading a non-proxied proxy-origin page with code it controls could still get around this. No such path is known, but it hasn't been audited either.</p>
+      <p class="where">Where: <code>mayChangeTransport()</code> in <code>src/sw/index.ts</code>. A stronger fix would be a per-entry <code>user_options = false</code> switch, so visitors can only pick configured options.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge security">security</span>The client cookie jar is on the shared origin (mitigated)</h3>
+      <p>For <code>"client"</code>-cookie transports, the service worker keeps every cookie, HttpOnly included, in the IndexedDB database <code>butter-col</code>, on the same origin as every proxied page. The runtime now gives page code a different database when it asks for that name and hides it from <code>indexedDB.databases()</code>.</p>
+      <p>Code that reaches an unpatched realm (see <a href="#runtime">about:blank frames</a>) could still open the real database and read the cookies.</p>
+      <p class="where">Where: <code>hookIndexedDB()</code> in <code>src/client/hooks/storage.js</code>. Fix direction: encrypt the jar with a key that exists only in the service worker's memory, accepting that cookies are lost when it restarts, or keep cookies on a server.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge security">security</span>Transport options are public; transports are trusted code</h3>
+      <p>Everything in a transport's <code>options</code> is published in <code>/butter/config.js</code>, so never put tokens or passwords there. Transport scripts run inside every proxied page and in the service worker, before any site code. A malicious or compromised transport package can therefore read and change all proxied traffic. Only install transports you trust, and pin their versions.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge medium">medium</span>The server's protections only cover the <code>butter</code> transport</h3>
+      <p>The SSRF guard, DNS pinning, header sanitising, server cookie jar and rate limiting all live in the Lua server. With <code>bare</code> or any other transport, what the backend may reach and how it treats headers is entirely up to that backend. A Bare server on your network that has no filtering of its own can reach your internal services.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge medium">medium</span>Switching transports switches cookie jars</h3>
+      <p><code>"server"</code> transports (the Lua jar) and <code>"client"</code> transports (the IndexedDB jar) don't share cookies. After switching between them, the visitor is logged out of every site, and switching back restores the old sessions. Two <code>"client"</code> transports do share the IndexedDB jar.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge medium">medium</span>Every configured transport loads in every page</h3>
+      <p>So that transports can wrap each other, each proxied document and worker loads the scripts of <em>all</em> configured transports, not only the active one. Each script is small (2–4 KiB) and cached, but a long list adds requests, and a transport whose script throws at load time logs errors on every page. It doesn't break the others: each script is loaded by its own <code>&lt;script&gt;</code> tag.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge medium">medium</span>The Bare transport hasn't met a real Bare server yet</h3>
+      <p>It follows the v3 specification and is tested against a mock. Things a real deployment might surface:</p>
+      <ul>
+        <li>Servers that don't expose <code>X-Bare-*</code> response headers to cross-origin readers (<code>Access-Control-Expose-Headers</code>).</li>
+        <li>Servers that only implement v1 or v2.</li>
+        <li>Servers that send <code>X-Bare-Headers</code> values in an unexpected shape.</li>
+      </ul>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge low">low</span>Open pages keep their WebSocket transport until reloaded</h3>
+      <p>HTTP switches to the new transport immediately, because it goes through the service worker. Each page's WebSocket transport was fixed when the page loaded, so it changes only on reload.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge low">low</span>Axis Network transports aren't documented yet</h3>
+      <p><code>svrls-transport</code>, <code>hubber-transport</code> and <code>feeral-transport</code> are listed on <a href="/transports.html#axis">Transports</a> by name and purpose only, because their source wasn't available while this was written. Their specific behaviour and limitations will be added here once it is.</p>
+    </div>
+
+    <h2 id="js">JavaScript rewriter</h2>
+
+    <div class="issue">
+      <h3><span class="badge medium">medium</span>Regex/division guesses can desynchronise the tokenizer</h3>
+      <p>Without a parser, <code>/</code> after <code>)</code> is treated as division and <code>/</code> after <code>}</code> as the start of a regex. Code like <code>if (ok) /'/.test(s)</code> breaks this guess. A misread quote then shifts what the tokenizer thinks is a string, so a <code>location</code> inside a real string literal could be rewritten, changing that string's contents.</p>
+      <p class="where">Where: <code>regexAllowed()</code> in <code>src/formatter/js.js</code>. Fix direction: an AST pass (e.g. a small WASM parser), as Scramjet does with oxc.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge medium">medium</span>Indirect access to <code>location</code> isn't caught</h3>
+      <p>These all reach the real <code>Location</code> object:</p>
+      <ul>
+        <li><code>window["loc" + "ation"]</code></li>
+        <li><code>Reflect.get(window, "location")</code></li>
+        <li><code>Object.getOwnPropertyDescriptor(window, "location")</code></li>
+        <li><code>with (window) { location }</code></li>
+        <li>destructuring inside parentheses, e.g. <code>({ location } = window)</code></li>
+      </ul>
+      <p>Reads return proxy URLs, and writes navigate away from the proxy prefix. Writes then usually land on the bootstrap page or a 404.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge medium">medium</span>Scripts created as text at runtime are only partly covered</h3>
+      <p>Covered: <code>eval</code>, <code>Function</code>, string timers, <code>script.text</code>/<code>textContent</code>/<code>innerText</code> and <code>innerHTML</code>. Not covered:</p>
+      <ul>
+        <li>a text node appended to a <code>&lt;script&gt;</code></li>
+        <li>blob: URL scripts and workers</li>
+        <li><code>data:</code> modules</li>
+        <li><code>AsyncFunction</code> / <code>GeneratorFunction</code> constructors</li>
+        <li><code>WebAssembly</code> imports that touch <code>location</code></li>
+      </ul>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge low">low</span>Renaming edge cases</h3>
+      <p><code>export const location = …</code> renames the exported binding, so other modules' <code>import { location }</code> fails. <code>export * as location</code> has the same problem. <code>Object.create(null)</code> objects and Proxy <code>set</code> traps that write straight to the target (some reactivity libraries) can end up with a <code>__butter$location</code> property instead of <code>location</code>.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge low">low</span>Rewritten source is visible</h3>
+      <p>Scripts that hash or inspect their own source (anti-tamper code, some captchas) see <code>__butter$</code> identifiers. Column numbers in stack traces and source maps shift. <code>"__butter$location" in {}</code> is <code>true</code>.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge low">low</span><code>import.meta.resolve()</code> is not rewritten</h3>
+      <p>It returns a proxy URL. Usually harmless, because fetching it goes back through the proxy.</p>
+    </div>
+
+    <h2 id="html">HTML &amp; CSS rewriter</h2>
+
+    <div class="issue">
+      <h3><span class="badge medium">medium</span>Documents, scripts and styles are buffered, not streamed</h3>
+      <p>Rewritten bodies are read completely before rewriting, so a large page shows nothing until it has fully downloaded. Multi-megabyte JavaScript bundles are rewritten inside the service worker on every load, because nothing is cached.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge low">low</span>The tokenizer isn't the HTML5 algorithm</h3>
+      <p>It handles common real-world markup, including raw text elements, comments, unquoted attributes and SVG. Some spec edge cases differ:</p>
+      <ul>
+        <li><code>&lt;noscript&gt;</code> content is parsed as markup.</li>
+        <li>Only six named entities are decoded in attribute values.</li>
+        <li>An unclosed quoted attribute leaves the rest of the document untouched.</li>
+        <li><code>document.write</code> calls that split a tag across calls are rewritten piece by piece.</li>
+      </ul>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge low">low</span>Charset handling is approximate</h3>
+      <p>Charset is taken from the BOM, then <code>Content-Type</code>, then a regex <code>&lt;meta&gt;</code> prescan of the first 1024 bytes. XML encoding declarations and browser sniffing heuristics aren't implemented. Rewritten bodies are always re-served as UTF-8.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge low">low</span>CSSOM and <code>image-set()</code> strings aren't rewritten</h3>
+      <p>Not rewritten: <code>insertRule</code>, <code>style.setProperty</code>, <code>CSSStyleSheet.replace</code>, <code>adoptedStyleSheets</code>, and <code>image-set("a.png" 1x)</code> written without <code>url()</code>. The service worker's fallback routing usually still loads these resources through the proxy.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge low">low</span>Import maps aren't rewritten</h3>
+      <p>They rely on the service worker's fallback routing, which handles the usual cases.</p>
+    </div>
+
+    <h2 id="runtime">Client runtime</h2>
+
+    <div class="issue">
+      <h3><span class="badge medium">medium</span>about:blank frames are only patched on first access</h3>
+      <p>The runtime is installed into an about:blank frame when the parent reads <code>iframe.contentWindow</code> or <code>contentDocument</code>. Code that reaches a frame through <code>window.frames[0]</code>, <code>window[0]</code> or <code>event.source</code> gets an unpatched realm. Requests from such a realm are still caught by the service worker, but its <code>location</code>, cookies and storage aren't hooked.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge medium">medium</span><code>document.cookie</code> is a local copy</h3>
+      <p>Each document receives its cookie view when it loads. Cookies set afterwards by the server (in other tabs, frames or fetch responses) don't appear in <code>document.cookie</code> until the next navigation. Local writes ignore <code>Path</code>/<code>Domain</code> for the local copy, although the server applies them properly.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge medium">medium</span>The page's own service workers are disabled</h3>
+      <p>PWAs, offline mode and push notifications don't work. <code>navigator.serviceWorker.ready</code> never resolves.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge low">low</span>Hook coverage gaps</h3>
+      <ul>
+        <li>SVG <code>href</code> through <code>SVGAnimatedString</code> isn't hooked.</li>
+        <li><code>xlink:href</code> isn't watched by the safety-net observer.</li>
+        <li><code>Attr.value</code> and <code>setAttributeNode</code> aren't hooked.</li>
+        <li><code>innerHTML</code>/<code>outerHTML</code> <em>getters</em> return proxied URLs.</li>
+        <li><code>performance</code> entries, <code>location.ancestorOrigins</code> and <code>Error</code> stacks show proxy URLs.</li>
+        <li>For messages from workers and BroadcastChannel, <code>MessageEvent.origin</code> reports the receiving page's target origin.</li>
+      </ul>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge low">low</span><code>Function</code> identity and hot-path cost</h3>
+      <p><code>window.Function</code> is a Proxy, and <code>Function.prototype.constructor</code> points to it. <code>Node.prototype.textContent</code> and <code>Element.prototype.setAttribute</code> are wrapped, which adds a little overhead to frameworks that call them constantly.</p>
+    </div>
+
+    <h2 id="sw">Service worker</h2>
+
+    <div class="issue">
+      <h3><span class="badge high">high</span>No HTTP caching</h3>
+      <p>Transport responses are <code>no-store</code>, and the service worker doesn't use the Cache API, so every image, script and font is fetched again on every page load. Combined with the default rate limit (1200 requests a minute), very heavy pages open in several tabs can reach <code>RATE_LIMITED</code>.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge medium">medium</span>Request bodies are buffered</h3>
+      <p>Uploads are read into memory (<code>request.arrayBuffer()</code>) before being sent. Large file uploads use that much memory, and streaming uploads aren't supported.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge medium">medium</span>Hard reload and new profiles land on the bootstrap page</h3>
+      <p>Ctrl+Shift+R bypasses service workers by design, so the server serves <code>bootstrap.html</code>, which reinstalls and reloads. If it loops, it stops after five seconds and explains why. Keepalive requests and beacons that a browser doesn't route through the service worker also reach the bootstrap page and are lost.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge low">low</span>Long-lived streams depend on service worker lifetime</h3>
+      <p>Server-sent events and very long downloads pass through the service worker. Browsers may end a service worker that has been busy for a long time, which cuts the stream.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge low">low</span>Approximate request headers</h3>
+      <ul>
+        <li><code>Sec-Fetch-Site</code> uses "last two labels" as the site, so <code>a.co.uk</code> and <code>b.co.uk</code> count as same-site.</li>
+        <li><code>Sec-Fetch-User</code> is sent for every navigation.</li>
+        <li>Client hints (<code>Sec-CH-UA-*</code>) aren't forwarded unless the page itself sets them.</li>
+      </ul>
+    </div>
+
+    <h2 id="cookies">Cookies &amp; sessions</h2>
+
+    <div class="issue">
+      <h3><span class="badge security">security</span>No public suffix list</h3>
+      <p>Only single-label <code>Domain</code> attributes (<code>Domain=com</code>) are refused. A site can set a cookie for <code>co.uk</code> or <code>github.io</code>, and it will then be sent to every site under that suffix within the same session.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge medium">medium</span>Cookies disappear on a full server restart</h3>
+      <p>Jars live in <code>lua_shared_dict</code> memory. <code>butter-col server reload</code> keeps them, but <code>server stop</code> followed by <code>server start</code> logs everyone out of every site. Client jars (IndexedDB) survive restarts.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge medium">medium</span>Session lifetime isn't refreshed by activity</h3>
+      <p>The <code>butter_sid</code> cookie gets <code>Max-Age</code> once, when it is created, and the jar's TTL only resets when a cookie changes. After <code>cookies.session_ttl</code> (7 days), an active user is silently given a new, empty jar.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge low">low</span>Racing first requests can split a session</h3>
+      <p>If the <code>butter_sid</code> cookie is deleted while the service worker is active, several parallel requests may each create a session before one cookie wins. Cookies set during that moment end up in the losing jars.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge low">low</span>Concurrent cookie writes are best-effort</h3>
+      <p>Header filters can't yield, so jar updates use a short spin lock on a shared-dict key. If two workers update the same session at the same instant and the lock is held for longer than the spin, a cookie can be lost. Under load the spin also costs a little CPU.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge low">low</span>SameSite and partitioned cookies are ignored</h3>
+      <p><code>SameSite</code> is stored but never enforced (see the CORS issue above). <code>Partitioned</code> (CHIPS) isn't understood.</p>
+    </div>
+
+    <h2 id="server">Server</h2>
+
+    <div class="issue">
+      <h3><span class="badge medium">medium</span>No upstream connection pooling</h3>
+      <p><code>proxy_pass</code> to a variable IP doesn't use an <code>upstream</code> keepalive pool, so every proxied request opens a new TCP connection. TLS session reuse softens the cost, but busy servers pay a lot of handshakes. A Lua balancer with a keepalive pool would fix this.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge medium">medium</span>Only the first resolved address is used</h3>
+      <p>There is no failover to other A records, no Happy Eyeballs, and IPv6 is off by default. IPv6-only sites fail unless <code>dns.ipv6 = true</code>.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge low">low</span>Lost upstream details</h3>
+      <ul>
+        <li>Upstream reason phrases are replaced with the standard ones.</li>
+        <li>1xx responses such as 103 Early Hints are dropped.</li>
+        <li>HTTP trailers are dropped.</li>
+        <li>Upstream response headers larger than 64 KiB give a 502.</li>
+        <li>The upstream side is always HTTP/1.1.</li>
+      </ul>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge low">low</span>The rate limiter is coarse</h3>
+      <p>The limiter uses fixed windows, so a client can make up to twice the limit across a window boundary. Behind a reverse proxy, all users share one counter unless <code>real_ip</code> is configured.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge low">low</span>Changing <code>base</code> or <code>prefix</code> needs matching nginx edits</h3>
+      <p>The locations in <code>nginx.conf</code> are static. <code>config.lua</code> validates the values, but it can't move the nginx locations to match.</p>
+    </div>
+
+    <h2 id="frontend">Frontend</h2>
+
+    <div class="issue">
+      <h3><span class="badge medium">medium</span>Some pages take over the whole tab</h3>
+      <p>The frontend shows pages in a frame. Links with <code>target="_top"</code> and "frame-busting" scripts (<code>if (top !== self) top.location = …</code>) replace the frontend with the proxied page itself. The page still loads through the proxy, but the toolbar is gone until you go back. The runtime gives the frontend a stand-in <code>location</code>, so that kind of code doesn't crash.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge low">low</span>Toolbar state is approximate</h3>
+      <p>Back and forward act on the frame's history, but the buttons are never disabled, because the frontend can't see how much history a frame has. The address bar is refreshed every half second, so a single-page app's URL can lag a moment behind. The progress bar starts when a page begins unloading and stops at <code>load</code>, so it doesn't reflect long-running requests.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge low">low</span>Preferences are per browser</h3>
+      <p>Search engine, theme and recent sites live in <code>localStorage</code> on the proxy origin, so they don't follow you between browsers. The transport choice is kept in the service worker's IndexedDB.</p>
+    </div>
+
+    <h2 id="compat">Site compatibility</h2>
+
+    <div class="issue">
+      <h3><span class="badge high">high</span>Bot checks, captchas and some logins fail</h3>
+      <p>Upstream connections come from nginx, whose TLS and HTTP fingerprint isn't a browser's. Cloudflare, Akamai and similar protections may show endless challenges. reCAPTCHA and hCaptcha check the embedding origin, and Google and some other sign-ins refuse what looks like an embedded or proxied browser.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge medium">medium</span>Frame and origin checks see the proxy</h3>
+      <p>Pages that test <code>window.top</code> against <code>window.self</code>, check <code>location.ancestorOrigins</code>, or expect embedded players (YouTube, maps) to be cross-origin behave differently, because everything is same-origin. <code>&lt;a download&gt;</code> links to other sites now download instead of navigating.</p>
+    </div>
+
+    <h2 id="platform">Platform</h2>
+
+    <div class="issue">
+      <h3><span class="badge medium">medium</span>The Windows OpenResty build is dated</h3>
+      <p>The newest OpenResty published for Windows (1.27.1.2) bundles OpenSSL 1.1.1w, which is end-of-life, and the nginx project itself treats Windows as a less capable platform. It's fine for development; use Linux for anything public.</p>
+    </div>
+
+    <div class="issue">
+      <h3><span class="badge low">low</span>Service workers need a secure context</h3>
+      <p>Only <code>https://</code> or <code>localhost</code> work. Some private browsing modes and enterprise policies disable service workers entirely.</p>
+    </div>
+
+    <h2 id="reporting">Reporting a bug</h2>
+    <p>Please include:</p>
+    <ol>
+      <li>The target URL, and whether it works when visited directly.</li>
+      <li>Browser and version.</li>
+      <li>Console errors, especially any that mention <code>__butter$</code> or <code>[butter]</code>.</li>
+      <li>From the Network tab: the failing request and its <code>X-Butter-Error</code> or <code>X-Butter-Error-Code</code> header.</li>
+      <li>The active transport (shown in the launcher), and the matching lines from <code>.butter/logs/error.log</code> when it's <code>butter</code>.</li>
+    </ol>
+    <p>For rewriter bugs, the smallest snippet of HTML, CSS or JavaScript that reproduces it is gold. It can usually become a test in <code>packages/butter-col/test/formatter.test.mjs</code>.</p>
+  </article>
+</div>
+
+<footer class="site-footer">butter-col · inspired by the work of <a href="/credits.html">Mercury Workshop and Titanium Network</a></footer>
+</body>
+</html>

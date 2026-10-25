@@ -1,0 +1,53 @@
+{
+  "name": "@axis-network/bare-transport",
+  "version": "0.1.0",
+  "description": "butter-col transport for TompHTTP Bare (v3) servers.",
+  "keywords": ["butter-col", "transport", "bare", "tomphttp", "proxy"],
+  "author": "Axis Network",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TheAxis-Network/butter-col.git",
+    "directory": "packages/bare-transport"
+  },
+  "bugs": {
+    "url": "https://github.com/TheAxis-Network/butter-col/issues"
+  },
+  "homepage": "https://github.com/TheAxis-Network/butter-col#readme",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./browser": "./dist/bare-transport.js",
+    "./package.json": "./package.json"
+  },
+  "butter": {
+    "transport": {
+      "name": "bare",
+      "browser": "dist/bare-transport.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@axis-network/butter-transport": "^0.1.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  }
+}

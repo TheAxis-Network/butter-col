@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en" data-theme="system">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>butter-col</title>
+<meta name="description" content="Browse any site through butter-col.">
+<meta name="color-scheme" content="dark light">
+<link rel="icon" type="image/png" href="butter-col.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Fredoka:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<!-- Home: the launcher -->
+<main id="home" class="home">
+  <header class="home-bar">
+    <button class="icon-button" type="button" data-action="settings" aria-label="Settings" title="Settings">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>
+    </button>
+  </header>
+
+  <section class="hero" aria-labelledby="hero-title">
+    <h1 id="hero-title" class="visually-hidden">butter-col</h1>
+    <img class="hero-logo" src="butter-col.png" alt="butter-col" width="694" height="359">
+
+    <form class="stick" id="home-form" autocomplete="off" role="search">
+      <label class="visually-hidden" for="home-input">Search or type an address</label>
+      <input id="home-input" class="stick-input" type="text" inputmode="url" enterkeyhint="go" spellcheck="false"
+             placeholder="Search or type an address" autofocus>
+      <button class="stick-go" type="submit">Go</button>
+    </form>
+
+    <p class="transport-line">
+      Browsing through <strong id="transport-name">…</strong>
+      <button class="text-button" type="button" data-action="settings">Change</button>
+    </p>
+    <p class="notice" id="home-notice" role="alert" hidden></p>
+  </section>
+
+  <section class="recent" aria-labelledby="recent-title">
+    <h2 id="recent-title">Recent</h2>
+    <ol class="recent-list" id="recent-list"></ol>
+    <p class="recent-empty" id="recent-empty">Sites you visit show up here.</p>
+  </section>
+</main>
+
+<!-- Browser: the toolbar and the proxied page -->
+<div id="browser" class="browser" hidden>
+  <nav class="toolbar" aria-label="Page controls">
+    <button class="icon-button" type="button" data-action="back" aria-label="Back" title="Back">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+    </button>
+    <button class="icon-button" type="button" data-action="forward" aria-label="Forward" title="Forward">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
+    </button>
+    <button class="icon-button" type="button" data-action="reload" aria-label="Reload" title="Reload">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>
+    </button>
+
+    <form class="address" id="address-form" autocomplete="off" role="search">
+      <label class="visually-hidden" for="address-input">Address</label>
+      <svg class="address-lock" id="address-lock" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+      <input id="address-input" class="address-input" type="text" inputmode="url" enterkeyhint="go" spellcheck="false">
+    </form>
+
+    <button class="icon-button" type="button" data-action="home" aria-label="Home" title="Home">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11l8-7 8 7"/><path d="M6 10v10h12V10"/></svg>
+    </button>
+    <button class="icon-button" type="button" data-action="fullscreen" aria-label="Full screen" title="Full screen">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+    </button>
+    <button class="icon-button" type="button" data-action="popout" aria-label="Open in a new tab" title="Open in a new tab">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>
+    </button>
+    <button class="icon-button" type="button" data-action="settings" aria-label="Settings" title="Settings">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+    </button>
+    <div class="progress" id="progress" aria-hidden="true"></div>
+  </nav>
+  <iframe id="frame" class="frame" title="Proxied page" allow="fullscreen; clipboard-read; clipboard-write; autoplay; picture-in-picture"></iframe>
+</div>
+
+<!-- Settings -->
+<dialog id="settings" class="settings" aria-labelledby="settings-title">
+  <form method="dialog" class="settings-body">
+    <header class="settings-head">
+      <h2 id="settings-title">Settings</h2>
+      <button class="icon-button" value="close" aria-label="Close settings" title="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+
+    <div class="field">
+      <label for="setting-transport">Transport</label>
+      <select id="setting-transport"></select>
+      <p class="hint" id="transport-hint">How pages reach the internet. Switching may sign you out of sites.</p>
+    </div>
+
+    <div class="field">
+      <label for="setting-search">Search with</label>
+      <select id="setting-search">
+        <option value="https://duckduckgo.com/?q=%s">DuckDuckGo</option>
+        <option value="https://www.google.com/search?q=%s">Google</option>
+        <option value="https://www.bing.com/search?q=%s">Bing</option>
+        <option value="https://search.brave.com/search?q=%s">Brave Search</option>
+        <option value="https://www.startpage.com/do/search?q=%s">Startpage</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="setting-theme">Theme</label>
+      <select id="setting-theme">
+        <option value="system">Match my device</option>
+        <option value="dark">Dark</option>
+        <option value="light">Light</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <span class="field-label">Private tab</span>
+      <button class="secondary-button" type="button" data-action="blank">Open butter-col in an about:blank tab</button>
+      <p class="hint">The new tab's address stays about:blank, so the sites you browse there stay out of your history.</p>
+    </div>
+
+    <div class="field">
+      <span class="field-label">Recent sites</span>
+      <button class="secondary-button" type="button" data-action="clear-recent">Clear recent sites</button>
+    </div>
+
+    <p class="notice" id="settings-notice" role="status" hidden></p>
+  </form>
+</dialog>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

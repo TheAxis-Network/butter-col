@@ -1,0 +1,25 @@
+{
+  "name": "butter-transport-template",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Template for writing a butter-col transport: a \"logged\" transport that wraps another one.",
+  "author": "Axis Network",
+  "license": "MIT",
+  "type": "module",
+  "butter": {
+    "transport": {
+      "name": "logged",
+      "browser": "dist/logged-transport.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "@axis-network/butter-transport": "^0.1.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

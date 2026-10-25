@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Architecture · butter-col</title>
+<meta name="description" content="How butter-col's server, service worker, formatter and client runtime fit together.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,650;1,9..144,600&family=Inter:wght@400;600&family=JetBrains+Mono&display=swap">
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" type="image/png" href="/butter-col.png">
+<style>
+  .diagram .box { fill: var(--bg-raised); stroke: var(--line); stroke-width: 1.5; }
+  .diagram .hot { fill: var(--butter); stroke: var(--butter-deep); }
+  .diagram text { fill: var(--ink); font: 13px var(--font-body); }
+  .diagram .small { fill: var(--muted); font-size: 11px; }
+  .diagram .hot + text, .diagram .hot ~ .on-hot { fill: #2b2417; }
+  .diagram .arrow { stroke: var(--crust); stroke-width: 1.6; fill: none; marker-end: url(#arrowhead); }
+  .diagram .label { fill: var(--crust); font: 11px var(--font-mono); }
+</style>
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="/"><img src="/butter-col.png" alt="butter-col" width="77" height="40"></a>
+  <nav class="site-nav" aria-label="Main">
+    <a href="/">Launch</a>
+    <a href="/guide.html">Guide</a>
+    <a href="/packages.html">Packages</a>
+    <a href="/transports.html">Transports</a>
+    <a href="/custom-transports.html">Build a transport</a>
+    <a href="/architecture.html" aria-current="page">Architecture</a>
+    <a href="/formatter.html">Formatter</a>
+    <a href="/protocol.html">Protocol</a>
+    <a href="/known-issues.html">Known issues</a>
+    <a href="/credits.html">Credits</a>
+  </nav>
+</header>
+
+<div class="docs">
+  <nav class="toc" aria-label="On this page">
+    <h2>Big picture</h2>
+    <ul>
+      <li><a href="#overview">The pieces</a></li>
+      <li><a href="#lifecycle">Life of a request</a></li>
+      <li><a href="#routing">Routing rules</a></li>
+    </ul>
+    <h2>Components</h2>
+    <ul>
+      <li><a href="#server">Lua server</a></li>
+      <li><a href="#service-worker">Service worker</a></li>
+      <li><a href="#runtime">Client runtime</a></li>
+      <li><a href="#cookies">Cookies &amp; sessions</a></li>
+      <li><a href="#storage">Storage</a></li>
+      <li><a href="#websockets">WebSockets</a></li>
+      <li><a href="#workers">Workers &amp; frames</a></li>
+    </ul>
+    <h2>Safety</h2>
+    <ul>
+      <li><a href="#security">Security model</a></li>
+    </ul>
+  </nav>
+
+  <article class="prose">
+    <h1>Architecture</h1>
+    <p class="lead">How a page from somewhere else ends up running on the proxy's origin, and which part is responsible for each step.</p>
+
+    <h2 id="overview">The pieces</h2>
+    <div class="diagram" role="img" aria-label="Browser tab with proxied page, service worker, butter-col server, and the target website, connected left to right.">
+      <svg viewBox="0 0 760 270" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="arrowhead" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0 0 L10 5 L0 10 z" fill="var(--crust)"/>
+          </marker>
+        </defs>
+        <rect class="box" x="10" y="20" width="230" height="230" rx="12"/>
+        <text x="24" y="44" font-weight="600">Browser (proxy origin)</text>
+
+        <rect class="box" x="26" y="60" width="198" height="78" rx="10"/>
+        <text x="40" y="84" font-weight="600">Proxied page</text>
+        <text class="small" x="40" y="104">rewritten HTML / CSS / JS</text>
+        <text class="small" x="40" y="122">+ client runtime hooks</text>
+
+        <rect class="box hot" x="26" y="160" width="198" height="74" rx="10"/>
+        <text class="on-hot" x="40" y="184" font-weight="600">Service worker</text>
+        <text class="on-hot small" x="40" y="204" style="fill:#5e4a1c">routes, builds headers,</text>
+        <text class="on-hot small" x="40" y="220" style="fill:#5e4a1c">rewrites responses</text>
+
+        <rect class="box" x="300" y="60" width="210" height="174" rx="12"/>
+        <text x="316" y="84" font-weight="600">butter-col server</text>
+        <text class="small" x="316" y="104">OpenResty · Lua</text>
+        <text class="small" x="316" y="130">• same-origin + rate limit</text>
+        <text class="small" x="316" y="148">• URL + header validation</text>
+        <text class="small" x="316" y="166">• DNS → reserved-IP guard</text>
+        <text class="small" x="316" y="184">• cookie jar per session</text>
+        <text class="small" x="316" y="202">• proxy_pass to pinned IP</text>
+
+        <rect class="box" x="570" y="60" width="180" height="174" rx="12"/>
+        <text x="586" y="84" font-weight="600">Target site</text>
+        <text class="small" x="586" y="104">https://example.com</text>
+
+        <path class="arrow" d="M125 138 L125 158"/>
+        <text class="label" x="132" y="152">fetch event</text>
+        <path class="arrow" d="M224 196 L298 160"/>
+        <text class="label" x="232" y="168">/butter/fetch</text>
+        <path class="arrow" d="M224 96 L298 96"/>
+        <text class="label" x="232" y="90">/butter/ws</text>
+        <path class="arrow" d="M510 146 L568 146"/>
+        <text class="label" x="516" y="140">HTTP(S)</text>
+      </svg>
+    </div>
+    <ul>
+      <li>The <strong>service worker</strong> (<code>src/sw/</code>, TypeScript) sits between proxied pages and the network.</li>
+      <li>A <strong>transport</strong> carries each request out. The default <code>butter</code> transport (<code>src/transports/butter.ts</code>) sends it to the <strong>server</strong> (<code>server/</code>, Lua on OpenResty); others, like <code>bare</code>, use other backends. See <a href="/transports.html">Transports</a>.</li>
+      <li>The <strong>formatter</strong> (<code>src/formatter/</code>, JavaScript) is pure string-in, string-out rewriting. Both the service worker and the runtime use it.</li>
+      <li>The <strong>client runtime</strong> (<code>src/client/</code>, JavaScript) runs inside every proxied document and worker, and covers what can't be rewritten ahead of time.</li>
+    </ul>
+
+    <h2 id="lifecycle">Life of a request</h2>
+    <p class="where">Source paths on this page are relative to <code>packages/butter-col/</code>.</p>
+    <p>Here's what happens when you type <code>example.com</code> into the launcher, with the default <code>butter</code> transport:</p>
+    <ol>
+      <li><strong>Launcher.</strong> <code>ButterController</code> (used by <code>docs/launcher.js</code>) registers <code>/butter/sw.js</code> with scope <code>/</code>. The server sends <code>Service-Worker-Allowed: /</code>. The launcher then fetches <code>/butter/config.js</code>, which also sets the <code>butter_sid</code> session cookie, and navigates to <code>/butter/go/https%3A%2F%2Fexample.com%2F</code>.</li>
+      <li><strong>Interception.</strong> The service worker's <code>fetch</code> handler decodes the path into the target URL <code>https://example.com/</code>.</li>
+      <li><strong>Headers.</strong> <code>src/sw/request.ts</code> copies the page's request headers. It recomputes <code>Referer</code> (applying the request's referrer policy as if the referrer were the target page), <code>Origin</code> and <code>Sec-Fetch-Site/Mode/Dest/User</code>.</li>
+      <li><strong>Transport.</strong> <code>src/sw/transports.ts</code> picks the active transport: the visitor's choice from IndexedDB, or the configured default. Its <code>request()</code> runs, and for <code>butter</code> that sends the request with the same method and body to <code>/butter/fetch</code>, with the target URL in <code>X-Butter-URL</code> and the headers in <code>X-Butter-Headers</code>. With a <code>"client"</code>-cookie transport, the service worker adds <code>Cookie</code> from its own jar first, and stores <code>Set-Cookie</code> afterwards.</li>
+      <li><strong>Access phase (Lua).</strong> The server rate-limits, checks the request came from its own origin, parses the URL strictly, validates the headers, resolves the host and rejects reserved addresses. It then replaces the request's headers, adds <code>Cookie</code> from the session's jar, and sets <code>$butter_addr</code> to the <em>resolved IP</em>.</li>
+      <li><strong>Proxy.</strong> nginx connects to that IP, sends SNI and <code>Host</code> for the original name, verifies the certificate, and streams the response back.</li>
+      <li><strong>Header filter (Lua).</strong> <code>Set-Cookie</code> goes into the jar. The upstream status and headers are packed into <code>X-Butter-Status</code> and <code>X-Butter-Headers</code>, and the outer response becomes a <code>200</code>. Only <code>Content-Encoding</code> and <code>Content-Length</code> stay, so the browser decompresses the body itself.</li>
+      <li><strong>Rewrite.</strong> The service worker drops headers that would break the proxy (CSP, X-Frame-Options, COOP/COEP, HSTS, Clear-Site-Data, …) and rewrites <code>Location</code>, <code>Refresh</code> and <code>Link</code>. Then, based on the request <em>destination</em>, it decodes the body with the right charset and runs it through the formatter. For documents, it injects the runtime at the top of <code>&lt;head&gt;</code>.</li>
+      <li><strong>Runtime.</strong> The injected <code>/butter/client.js</code> runs before any of the page's own scripts and installs its hooks.</li>
+    </ol>
+    <p>Redirects come back to the service worker as ordinary responses with a rewritten <code>Location</code>. The browser follows them and the new request goes through the same path. The real status is carried in a header so that the browser's network stack never acts on it: it doesn't follow redirects and doesn't show auth dialogs for 401.</p>
+
+    <h2 id="routing">Routing rules</h2>
+    <p><code>src/sw/route.ts</code> decides what each intercepted request is.</p>
+    <table>
+      <thead><tr><th>Request</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td>Same origin, path under <code>/butter/go/</code>, decodes to a URL</td><td>Proxy that URL. If the proxy URL has its own <code>?query</code>, it replaces the target's query; this is how GET forms and <code>?page=2</code> links work.</td></tr>
+        <tr><td>Same origin, under <code>/butter/go/</code>, doesn't decode (e.g. <code>/butter/go/img.png</code>)</td><td>A relative URL the browser resolved against the proxy URL. Resolve the tail against the requesting page's target URL.</td></tr>
+        <tr><td>Same origin, under <code>/butter/</code></td><td>butter-col's own assets: passed to the network untouched.</td></tr>
+        <tr><td>Same origin, anywhere else (e.g. <code>/api/user</code>), from a proxied page</td><td>A path-absolute URL that escaped rewriting. Resolve it against the page's target origin.</td></tr>
+        <tr><td>Same origin, not from a proxied page</td><td>Passthrough (the docs site).</td></tr>
+        <tr><td>Cross-origin, from proxied content (including about:blank frames and blob: workers)</td><td>Proxy the URL as-is.</td></tr>
+        <tr><td>Cross-origin, from the docs site</td><td>Passthrough (Google Fonts, etc.).</td></tr>
+      </tbody>
+    </table>
+    <p>The "requesting page" is found from <code>FetchEvent.clientId</code>. For navigations, which have no client ID, it comes from <code>request.referrer</code>. These fallbacks mean that a URL the rewriter missed still usually loads through the proxy instead of failing or leaking.</p>
+
+    <h2 id="server">Lua server</h2>
+    <p>The server is a thin decision layer in front of nginx's proxy module. Each request runs through these phases:</p>
+    <table>
+      <thead><tr><th>Phase</th><th>Code</th><th>Work</th></tr></thead>
+      <tbody>
+        <tr><td><code>init_by_lua</code></td><td><code>butter/init.lua</code></td><td>Load and validate <code>config.lua</code>, then preload every module.</td></tr>
+        <tr><td><code>access_by_lua</code></td><td><code>transport.access_fetch</code> / <code>access_ws</code></td><td>Rate limit → same-origin → URL → guard (ports, hosts, DNS, reserved IPs) → headers → cookie jar → upstream variables.</td></tr>
+        <tr><td>content</td><td>nginx <code>proxy_pass</code></td><td>Connect to the pinned IP with TLS verification, then stream both ways.</td></tr>
+        <tr><td><code>header_filter_by_lua</code></td><td><code>transport.header_filter_*</code></td><td>Capture cookies, pack status and headers, add the session cookie if new.</td></tr>
+        <tr><td><code>error_page</code></td><td><code>transport.upstream_error</code></td><td>Turn nginx's own 502/504 into a JSON transport error.</td></tr>
+      </tbody>
+    </table>
+    <p>Connecting to the address the guard checked, rather than letting nginx resolve the name again, is what defeats DNS rebinding. The name is still used for SNI, <code>Host</code> and certificate verification.</p>
+    <p>Shared state lives in three <code>lua_shared_dict</code> zones: <code>butter_dns</code> (resolver cache), <code>butter_cookies</code> (jars) and <code>butter_limit</code> (rate-limit counters). Nothing is written to disk.</p>
+
+    <h2 id="service-worker">Service worker</h2>
+    <table>
+      <thead><tr><th>File</th><th>Responsibility</th></tr></thead>
+      <tbody>
+        <tr><td><code>index.ts</code></td><td>Lifecycle (<code>skipWaiting</code>, <code>clients.claim</code>), fetch dispatch, a fast path that skips <code>respondWith</code> for requests that can't concern the proxy, <code>/butter/cookie</code> for client jars, and the <a href="/protocol.html#messages">message protocol</a> used by <code>ButterController</code> and the runtime.</td></tr>
+        <tr><td><code>config.ts</code></td><td><code>importScripts("config.js")</code>, which loads the server-generated configuration.</td></tr>
+        <tr><td><code>route.ts</code></td><td>The <a href="#routing">routing rules</a>.</td></tr>
+        <tr><td><code>request.ts</code></td><td>Upstream headers: referrer policy, Origin, Sec-Fetch-*.</td></tr>
+        <tr><td><code>transports.ts</code></td><td>Loads every configured transport with <code>importScripts</code>, remembers the visitor's choice in IndexedDB, and creates the active instance.</td></tr>
+        <tr><td><code>cookie-jar.ts</code></td><td>RFC 6265 jar in IndexedDB for <code>"client"</code>-cookie transports. It ports <code>cookiejar.lua</code>, and both are tested against the same cases.</td></tr>
+        <tr><td><code>response.ts</code></td><td>Header policy, body kind by destination, runtime injection, worker prelude, manifest rewriting.</td></tr>
+        <tr><td><code>charset.ts</code></td><td>BOM → <code>Content-Type</code> charset → <code>&lt;meta&gt;</code> prescan decoding. Rewritten bodies are always re-served as UTF-8.</td></tr>
+        <tr><td><code>error-page.ts</code></td><td>Friendly HTML errors for navigations, plain text for subresources.</td></tr>
+      </tbody>
+    </table>
+    <p>Bodies are rewritten by <code>Request.destination</code>, not by URL extension:</p>
+    <table>
+      <thead><tr><th>Destination</th><th>Treatment</th></tr></thead>
+      <tbody>
+        <tr><td><code>document</code>, <code>iframe</code>, <code>frame</code>, <code>embed</code>, <code>object</code></td><td>HTML rewrite + runtime injection (when the MIME type is HTML or missing)</td></tr>
+        <tr><td><code>script</code>, <code>audioworklet</code>, <code>paintworklet</code></td><td>JS rewrite</td></tr>
+        <tr><td><code>worker</code>, <code>sharedworker</code></td><td>JS rewrite + runtime prelude (<code>importScripts</code>, or <code>import</code> for module workers)</td></tr>
+        <tr><td><code>style</code></td><td>CSS rewrite</td></tr>
+        <tr><td><code>manifest</code></td><td>Web app manifest URLs rewritten</td></tr>
+        <tr><td>everything else (<code>fetch()</code>, XHR, images, media, fonts)</td><td>Streamed through unchanged</td></tr>
+      </tbody>
+    </table>
+    <p>HTML fetched with <code>fetch()</code> is deliberately <em>not</em> rewritten, because pages that download HTML usually want the exact bytes.</p>
+
+    <h2 id="runtime">Client runtime</h2>
+    <p>The runtime (<code>src/client/</code>) is injected at the top of every proxied document. Its rule is that <strong>the DOM always holds proxied URLs, and the page always sees original URLs</strong>. Setters rewrite on the way in; getters un-rewrite on the way out.</p>
+    <table>
+      <thead><tr><th>Area</th><th>Hooks</th></tr></thead>
+      <tbody>
+        <tr><td>location</td><td>A fake <code>Location</code> per window (and <code>WorkerLocation</code> per worker), reached via the <code>__butter$location</code> accessor on <code>Object.prototype</code> that rewritten code uses.</td></tr>
+        <tr><td>Navigation</td><td><code>window.open</code>, <code>history.pushState/replaceState</code>, <code>navigation.navigate</code></td></tr>
+        <tr><td>Network</td><td><code>fetch</code>, <code>Request</code>, <code>Response.url</code>, <code>XMLHttpRequest.open/responseURL</code>, <code>WebSocket</code>, <code>EventSource</code>, <code>navigator.sendBeacon</code>, <code>Worker</code>, <code>SharedWorker</code>, <code>importScripts</code></td></tr>
+        <tr><td>DOM attributes</td><td><code>setAttribute</code>, <code>getAttribute</code>, <code>setAttributeNS</code>, and reflected properties such as <code>a.href</code>, <code>img.src</code>/<code>srcset</code>, <code>form.action</code>, <code>iframe.src</code>, <code>video.poster</code>, <code>object.data</code>, <code>currentSrc</code>, anchor URL parts (<code>hostname</code>, <code>pathname</code>, …), <code>integrity</code></td></tr>
+        <tr><td>Markup</td><td><code>innerHTML</code>, <code>outerHTML</code>, <code>insertAdjacentHTML</code>, <code>setHTMLUnsafe</code>, <code>Range.createContextualFragment</code>, <code>document.write/writeln</code>, script <code>text</code>/<code>textContent</code>/<code>innerText</code></td></tr>
+        <tr><td>Document</td><td><code>URL</code>, <code>documentURI</code>, <code>baseURI</code>, <code>referrer</code>, <code>domain</code>, <code>cookie</code></td></tr>
+        <tr><td>Dynamic code</td><td><code>eval</code> (via rewriting), <code>Function</code>, string <code>setTimeout</code>/<code>setInterval</code></td></tr>
+        <tr><td>Messaging</td><td><code>postMessage</code> target origins, <code>MessageEvent.origin</code></td></tr>
+        <tr><td>Isolation</td><td><code>localStorage</code> / <code>sessionStorage</code> namespaced per target origin; service-worker registration disabled for pages</td></tr>
+        <tr><td>Frames</td><td><code>contentWindow</code> / <code>contentDocument</code> install the runtime into about:blank frames on first access</td></tr>
+        <tr><td>Safety net</td><td>A <code>MutationObserver</code> rewrites navigation-capable attributes (<code>a[href]</code>, <code>form[action]</code>, <code>iframe[src]</code>, …) that slipped past every other hook, before anyone can click them.</td></tr>
+      </tbody>
+    </table>
+    <p>Wrapped functions report their original source from <code>Function.prototype.toString</code>, so simple "is this native?" checks still pass. Every group of hooks is installed separately, so a missing API in one browser doesn't take down the rest.</p>
+
+    <h2 id="cookies">Cookies &amp; sessions</h2>
+    <p>Where cookies live depends on the transport's <a href="/transports.html#cookies">cookie mode</a>. With the default <code>butter</code> transport (<code>"server"</code> mode) they are kept on the <strong>server</strong>, not in the browser:</p>
+    <ul>
+      <li>Each browser gets a random 128-bit <code>butter_sid</code> (<code>HttpOnly; SameSite=Strict; Path=/</code>, plus <code>Secure</code> over HTTPS).</li>
+      <li>Upstream <code>Set-Cookie</code> headers are parsed with RFC 6265 rules and stored per session in <code>butter_cookies</code>. The rules cover domain and path matching, <code>Max-Age</code>/<code>Expires</code>, <code>Secure</code>, <code>HttpOnly</code>, and the <code>__Secure-</code>/<code>__Host-</code> prefixes.</li>
+      <li>On each request the server builds the <code>Cookie</code> header itself. The browser never sees upstream cookies, so <code>HttpOnly</code> really is HTTP-only.</li>
+      <li>Documents are served with their <code>document.cookie</code> view in <code>X-Butter-Document-Cookies</code>. The runtime keeps a local copy, and writes are sent back to <code>POST /butter/cookie</code> with <code>keepalive</code>.</li>
+    </ul>
+    <p>With <code>"client"</code>-mode transports such as <code>bare</code>, the service worker keeps an equivalent jar in IndexedDB. It adds <code>Cookie</code> to requests and stores <code>Set-Cookie</code> from responses. It answers <code>POST /butter/cookie</code> itself, and gives pages the cookies for WebSocket handshakes over a <code>MessageChannel</code>. HttpOnly cookies still never reach page scripts.</p>
+
+    <h2 id="storage">Storage</h2>
+    <p>Every proxied site shares one real origin, the proxy's. The runtime wraps <code>localStorage</code> and <code>sessionStorage</code> in proxies that prefix keys with <code>butter:&lt;target origin&gt;:</code>, so sites can't see or clobber each other's keys. IndexedDB, the Cache API, BroadcastChannel and Web Locks are <strong>not</strong> namespaced yet; see <a href="/known-issues.html#isolation">Known issues</a>.</p>
+
+    <h2 id="websockets">WebSockets</h2>
+    <p>WebSocket connections never pass through a service worker. So the runtime replaces <code>window.WebSocket</code> with its own class (<code>src/client/websocket.js</code>), which behaves like the native one: <code>readyState</code>, <code>binaryType</code>, <code>on*</code> handlers, ordered events, and close-code validation. It opens the socket through the <strong>active transport's <code>connect()</code></strong> in the page's own realm. The headers it passes are <code>Origin</code> (the page's target origin), <code>User-Agent</code>, and the cookies from the service worker for client-jar transports.</p>
+    <p>The built-in <code>butter</code> transport turns <code>new WebSocket("wss://chat.example/socket", ["v1"])</code> into a native socket to:</p>
+    <pre><code>wss://proxy/butter/ws?url=wss%3A%2F%2Fchat.example%2Fsocket&amp;origin=https%3A%2F%2Fexample.com</code></pre>
+    <p>The server runs the same checks as for HTTP, sets <code>Origin</code> to the page's target origin and <code>Cookie</code> from the jar, and lets nginx tunnel the upgrade. The browser's <code>Sec-WebSocket-Key</code>, subprotocols and extensions pass straight through, so the handshake is end-to-end. Other transports tunnel it their own way; <code>bare</code> uses Bare v3's JSON handshake. Either way, <code>ws.url</code> reports the original URL.</p>
+
+    <h2 id="workers">Workers &amp; frames</h2>
+    <ul>
+      <li><strong>Dedicated and shared workers:</strong> the URL is rewritten. The service worker prepends boot data (the active transport) and <code>importScripts()</code> of <code>/butter/config.js</code>, every configured transport and <code>/butter/client.js</code> to classic workers. Module workers get <code>import</code> statements instead, with the boot data as a <code>data:</code> module, and are marked with <code>~m/</code> after the prefix. A <code>"use strict"</code> directive stays first.</li>
+      <li><strong>Proxied iframes</strong> load their own runtime like any document. Every proxied document also gets a <code>&lt;script&gt;</code> for each configured transport, so transports can wrap each other in pages too.</li>
+      <li><strong>about:blank / srcdoc frames:</strong> <code>srcdoc</code> is rewritten with the runtime injected. about:blank frames are patched by the parent the first time the page reaches into them.</li>
+      <li><strong>The page's own service workers:</strong> registration is refused with a <code>SecurityError</code>, and <code>controller</code> reads as <code>null</code>. butter-col's own worker has to stay in control.</li>
+    </ul>
+
+    <h2 id="security">Security model</h2>
+    <h3>What the server defends (butter transport)</h3>
+    <p>These protections live in the Lua server, so they apply to traffic carried by the <code>butter</code> transport. Other transports rely on their own backend's policy.</p>
+    <ul>
+      <li><strong>SSRF:</strong> targets must be http(s)/ws(s) on non-"bad" ports. Every resolved address is checked against loopback, RFC 1918, CGNAT, link-local (cloud metadata), multicast, documentation and other reserved IPv4/IPv6 ranges, including IPv4 embedded in IPv6. nginx then connects to the checked IP, never re-resolving.</li>
+      <li><strong>Request smuggling / header injection:</strong> URLs containing whitespace, control or non-ASCII characters are refused. Header names must be RFC tokens, and values may not contain CR, LF or NUL. Hop-by-hop, <code>Host</code>, <code>Cookie</code> and forwarding headers can't be set by pages.</li>
+      <li><strong>Upstream control of nginx:</strong> <code>X-Accel-*</code> response headers are ignored, so an upstream can't trigger internal redirects.</li>
+      <li><strong>Cross-site abuse:</strong> transport endpoints refuse requests that browsers mark as cross-site, so other websites can't drive the proxy through a visitor's browser.</li>
+      <li><strong>Credentials in URLs</strong> (<code>user:pass@host</code>) are refused.</li>
+      <li><strong>Upstream TLS</strong> is verified (TLS 1.2+, SNI, Mozilla trust store).</li>
+    </ul>
+    <h3>What it does not defend</h3>
+    <p>Like every same-origin interception proxy, butter-col puts every site on one origin. A malicious proxied page can, in principle, read data that other proxied sites left in shared browser storage, or script other proxied frames. The proxy also removes CSP, SRI and iframe <code>sandbox</code>, because they'd break rewriting. That takes away protections the sites themselves relied on. The full list is in <a href="/known-issues.html#security">Known issues → Security</a>.</p>
+  </article>
+</div>
+
+<footer class="site-footer">butter-col · inspired by the work of <a href="/credits.html">Mercury Workshop and Titanium Network</a></footer>
+</body>
+</html>

@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Build a transport · butter-col</title>
+<meta name="description" content="How to write, test, package and publish a custom butter-col transport.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,650;1,9..144,600&family=Inter:wght@400;600&family=JetBrains+Mono&display=swap">
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" type="image/png" href="/butter-col.png">
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="/"><img src="/butter-col.png" alt="butter-col" width="77" height="40"></a>
+  <nav class="site-nav" aria-label="Main">
+    <a href="/">Launch</a>
+    <a href="/guide.html">Guide</a>
+    <a href="/packages.html">Packages</a>
+    <a href="/transports.html">Transports</a>
+    <a href="/custom-transports.html" aria-current="page">Build a transport</a>
+    <a href="/architecture.html">Architecture</a>
+    <a href="/formatter.html">Formatter</a>
+    <a href="/protocol.html">Protocol</a>
+    <a href="/known-issues.html">Known issues</a>
+    <a href="/credits.html">Credits</a>
+  </nav>
+</header>
+
+<div class="docs">
+  <nav class="toc" aria-label="On this page">
+    <h2>Start</h2>
+    <ul>
+      <li><a href="#quick-start">Quick start</a></li>
+      <li><a href="#smallest">The smallest transport</a></li>
+      <li><a href="#lifecycle">Lifecycle</a></li>
+    </ul>
+    <h2>The contract</h2>
+    <ul>
+      <li><a href="#factory">Factory &amp; options</a></li>
+      <li><a href="#env">The environment</a></li>
+      <li><a href="#meta">meta</a></li>
+      <li><a href="#request">request()</a></li>
+      <li><a href="#errors">Errors</a></li>
+      <li><a href="#connect">connect()</a></li>
+      <li><a href="#cookies">Cookies</a></li>
+      <li><a href="#rules">Rules of the road</a></li>
+    </ul>
+    <h2>Ship it</h2>
+    <ul>
+      <li><a href="#package">Packaging</a></li>
+      <li><a href="#testing">Testing</a></li>
+      <li><a href="#publish">Publishing</a></li>
+      <li><a href="#checklist">Checklist</a></li>
+    </ul>
+    <h2>Reference</h2>
+    <ul>
+      <li><a href="#api">API reference</a></li>
+      <li><a href="#ideas">Ideas</a></li>
+    </ul>
+  </nav>
+
+  <article class="prose">
+    <h1>Build a transport</h1>
+    <p class="lead">A transport is one factory function that returns an object with <code>meta</code>, <code>request()</code> and optionally <code>connect()</code>. This page covers everything else: where it runs, what it may and may not touch, and how to package, test and publish it.</p>
+
+    <h2 id="quick-start">Quick start</h2>
+    <ol>
+      <li>Copy <code>examples/transport-template</code> to a new folder. Rename it in <code>package.json</code>, both <code>"name"</code> and <code>"butter.transport.name"</code>, and in the <code>registerTransport()</code> call.</li>
+      <li>Replace the logic in <code>src/index.js</code> (or switch to TypeScript; the types ship with <code>@axis-network/butter-transport</code>).</li>
+      <li>Run <code>npm run build</code> to produce <code>dist/&lt;name&gt;-transport.js</code>, one classic script.</li>
+      <li>In a butter-col project: <code>npx butter-col transport add ./path/to/your-transport</code> (a package name or a <code>.js</code> file both work).</li>
+      <li>Add <code>{ name = "yours", options = { … } }</code> to <code>transports</code> in <code>butter.config.lua</code> and reload the server.</li>
+      <li>Pick it in the launcher's transport menu, or with <code>butter.setTransport("yours")</code>.</li>
+    </ol>
+
+    <h2 id="smallest">The smallest transport</h2>
+    <p>This one forwards to a server with its own simple protocol. Everything here is required except <code>connect()</code>:</p>
+    <pre><code>import { registerTransport, TransportError } from "@axis-network/butter-transport";
+
+registerTransport("tiny", (options, env) =&gt; {
+  const endpoint = new URL(options.endpoint, env.origin).href;
+
+  return {
+    meta: { name: "tiny", cookies: "client", websockets: false },
+
+    async request(req) {
+      let res;
+      try {
+        res = await env.fetch(endpoint, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            url: req.url.href,
+            method: req.method,
+            headers: req.headers,
+            body: req.body ? btoa(String.fromCharCode(...new Uint8Array(req.body))) : null,
+          }),
+          signal: req.signal,
+        });
+      } catch {
+        throw new TransportError("TRANSPORT_UNREACHABLE", "The tiny server is down.");
+      }
+      const meta = JSON.parse(res.headers.get("x-tiny-meta"));
+      return { status: meta.status, statusText: meta.statusText, headers: meta.headers, body: res.body };
+    },
+  };
+});</code></pre>
+    <p>The base64 body encoding is only there to keep the example short. Real transports should stream or send the raw <code>ArrayBuffer</code>.</p>
+
+    <h2 id="lifecycle">Lifecycle</h2>
+    <ol>
+      <li><strong>Load.</strong> butter-col loads your script in every realm that might need it:
+        <ul>
+          <li>the service worker, with <code>importScripts</code> during startup;</li>
+          <li>every proxied page, with an injected <code>&lt;script&gt;</code>;</li>
+          <li>every proxied worker, through the prelude.</li>
+        </ul>
+        At the top level your script should only call <code>registerTransport()</code>. Do no work and make no network calls.</li>
+      <li><strong>Create.</strong> When a realm first needs a transport, it calls your factory with the options and an <a href="#env">environment</a>. The service worker does this on the first proxied request, and a page on the first <code>new WebSocket()</code>. butter-col validates the returned object, then awaits <code>init()</code> if you defined one.</li>
+      <li><strong>Use.</strong> In the service worker, <code>request()</code> is called for every HTTP request of every proxied tab. It runs concurrently, so it must not keep per-request state on the transport object. In pages and workers, <code>connect()</code> is called for each WebSocket.</li>
+      <li><strong>Switch.</strong> When the visitor switches transports, the old instance's <code>destroy()</code> is called in the service worker. Instances in already-open pages live until those pages unload.</li>
+    </ol>
+    <p>One deployment might create your transport in a dozen realms at once. Keep the factory cheap, and keep <code>init()</code> idempotent.</p>
+
+    <h2 id="factory">Factory &amp; options</h2>
+    <pre><code>type TransportFactory&lt;Options&gt; =
+  (options: Options, env: TransportEnvironment) =&gt; ButterTransport | Promise&lt;ButterTransport&gt;;</code></pre>
+    <p><code>options</code> comes from the deployment's configuration, or from the visitor's <code>setTransport(name, options)</code>. Because both are public, the visitor can supply anything:</p>
+    <ul>
+      <li>Validate the options, and throw a clear <code>TypeError</code> when something required is missing.</li>
+      <li>Accept relative URLs and resolve them against <code>env.origin</code>, as both bundled transports do. That way the same configuration works on any host.</li>
+      <li>Never require a secret. Anything in the options can be read from <code>/butter/config.js</code>.</li>
+    </ul>
+
+    <h2 id="env">The environment</h2>
+    <table>
+      <thead><tr><th>Field</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td><code>env.scope</code></td><td><code>"serviceworker"</code>, <code>"window"</code> or <code>"worker"</code>.</td></tr>
+        <tr><td><code>env.origin</code></td><td>The proxy's own origin.</td></tr>
+        <tr><td><code>env.config</code></td><td>The full public configuration: prefix, codec, endpoints, the transport list.</td></tr>
+        <tr><td><code>env.fetch</code></td><td>The <strong>unhooked</strong> <code>fetch</code>.</td></tr>
+        <tr><td><code>env.WebSocket</code></td><td>The <strong>unhooked</strong> <code>WebSocket</code> constructor (may be missing in a service worker).</td></tr>
+      </tbody>
+    </table>
+    <div class="note warn"><strong>Always use <code>env.fetch</code> and <code>env.WebSocket</code>, never the globals.</strong> In pages and workers, butter-col replaces <code>window.fetch</code> (it rewrites URLs) and <code>window.WebSocket</code> (it routes through <em>your</em> <code>connect()</code>). Calling the global <code>WebSocket</code> from inside <code>connect()</code> recurses forever.</div>
+
+    <h2 id="meta">meta</h2>
+    <table>
+      <thead><tr><th>Field</th><th>Required</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td><code>name</code></td><td>yes</td><td>Must equal the registered name: lower-case letters, digits, <code>.</code>, <code>_</code>, <code>-</code>, at most 64 characters.</td></tr>
+        <tr><td><code>cookies</code></td><td>yes</td><td><code>"server"</code> if your backend keeps cookies, otherwise <code>"client"</code>. See <a href="#cookies">Cookies</a>.</td></tr>
+        <tr><td><code>websockets</code></td><td>yes</td><td><code>true</code> only if <code>connect()</code> is implemented.</td></tr>
+        <tr><td><code>version</code>, <code>description</code></td><td>no</td><td>Shown in logs and tools.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="request">request()</h2>
+    <pre><code>request(req: TransportRequest): Promise&lt;TransportResponse&gt;</code></pre>
+    <p>You receive:</p>
+    <table>
+      <thead><tr><th>Field</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td><code>url</code></td><td>Absolute <code>http:</code>/<code>https:</code> <code>URL</code>, fragment removed.</td></tr>
+        <tr><td><code>method</code></td><td>The page's method.</td></tr>
+        <tr><td><code>headers</code></td><td>Lower-case names, one value each. Already contains the right <code>referer</code>, <code>origin</code> and <code>sec-fetch-*</code>, plus <code>cookie</code> for <code>"client"</code> transports. Send them as they are.</td></tr>
+        <tr><td><code>body</code></td><td><code>ArrayBuffer</code>, or <code>null</code> for GET and HEAD.</td></tr>
+        <tr><td><code>signal</code></td><td>Aborted when the page cancels. Pass it on.</td></tr>
+        <tr><td><code>context.destination</code>, <code>context.mode</code></td><td>From the intercepted <code>Request</code>, for transports that want to prioritise or cache.</td></tr>
+        <tr><td><code>context.wantDocumentCookies</code></td><td>For <code>"server"</code> transports: return the <code>document.cookie</code> view in <code>documentCookies</code>.</td></tr>
+      </tbody>
+    </table>
+    <p>You return:</p>
+    <table>
+      <thead><tr><th>Field</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td><code>status</code></td><td>The upstream status, 200–599. Don't follow redirects yourself: return the 3xx with its <code>location</code> header, and butter-col rewrites it.</td></tr>
+        <tr><td><code>statusText</code></td><td>Optional reason phrase.</td></tr>
+        <tr><td><code>headers</code></td><td><code>[name, value]</code> pairs in order, with one pair per <code>set-cookie</code> (don't join them!). Use <code>headersToList()</code> to convert from <code>Headers</code> or an object.</td></tr>
+        <tr><td><code>body</code></td><td>The <strong>decoded</strong> body as a <code>ReadableStream</code>, <code>ArrayBuffer</code>, <code>Blob</code>, string, or <code>null</code>. If your backend sends compressed bytes, either let the browser decompress them (send <code>Content-Encoding</code> on your own HTTP response, as <code>butter</code> and <code>bare</code> do) or decompress them yourself.</td></tr>
+        <tr><td><code>documentCookies</code></td><td>Only for <code>"server"</code> transports, and only when asked.</td></tr>
+      </tbody>
+    </table>
+    <p>butter-col then drops hop-by-hop, CSP and other unsafe headers, rewrites <code>Location</code>, <code>Link</code> and <code>Refresh</code>, and rewrites HTML, CSS and JS bodies according to the request destination. Return the upstream response as faithfully as you can.</p>
+
+    <h2 id="errors">Errors</h2>
+    <p>Throw a <code>TransportError(code, message, status?)</code>. The visitor sees the code and message on butter-col's error page, which uses <code>status</code> (default 502) as its HTTP status. Use the standard codes where they fit, so error pages and docs stay consistent:</p>
+    <table>
+      <thead><tr><th>Constant</th><th>Code</th><th>When</th></tr></thead>
+      <tbody>
+        <tr><td><code>UNREACHABLE</code></td><td><code>TRANSPORT_UNREACHABLE</code></td><td>Your backend can't be reached.</td></tr>
+        <tr><td><code>BAD_RESPONSE</code></td><td><code>BAD_TRANSPORT_RESPONSE</code></td><td>Your backend answered with nonsense.</td></tr>
+        <tr><td><code>DNS_FAILURE</code></td><td><code>DNS_FAILURE</code></td><td>The target's host doesn't resolve.</td></tr>
+        <tr><td><code>UPSTREAM_UNREACHABLE</code></td><td><code>UPSTREAM_UNREACHABLE</code></td><td>The target refused or reset the connection, or TLS failed.</td></tr>
+        <tr><td><code>UPSTREAM_TIMEOUT</code></td><td><code>UPSTREAM_TIMEOUT</code></td><td>The target was too slow.</td></tr>
+        <tr><td><code>BLOCKED</code></td><td><code>BLOCKED</code></td><td>Your backend refuses this target.</td></tr>
+        <tr><td><code>ERROR</code></td><td><code>TRANSPORT_ERROR</code></td><td>Anything else.</td></tr>
+      </tbody>
+    </table>
+    <p>Prefix your own codes (for example <code>BARE_UNKNOWN</code>). Re-throw <code>AbortError</code> unchanged, because butter-col treats it as a cancelled request rather than an error. Error objects are matched by shape (<code>TransportError.is()</code>), so it doesn't matter that every transport bundles its own copy of the class.</p>
+
+    <h2 id="connect">connect()</h2>
+    <pre><code>connect(url: URL, protocols: string[], headers: HeaderMap, handlers: SocketHandlers): TransportSocket</code></pre>
+    <p>This is called inside the page or worker. butter-col's own <code>WebSocket</code> class already validated the URL, so <code>url</code> is always <code>ws:</code> or <code>wss:</code>. <code>headers</code> holds <code>origin</code> (the page's target origin), <code>user-agent</code>, and <code>cookie</code> for <code>"client"</code> transports. Return synchronously, then report progress:</p>
+    <table>
+      <thead><tr><th>Handler</th><th>Call it when</th></tr></thead>
+      <tbody>
+        <tr><td><code>handlers.open(protocol, extensions)</code></td><td>The upstream handshake succeeded.</td></tr>
+        <tr><td><code>handlers.message(data)</code></td><td>A frame arrived: <code>string</code> for text, <code>ArrayBuffer</code> or <code>Blob</code> for binary. butter-col converts to the page's <code>binaryType</code>.</td></tr>
+        <tr><td><code>handlers.error(message)</code></td><td>Something failed. Follow it with <code>close()</code>.</td></tr>
+        <tr><td><code>handlers.close(code, reason, wasClean)</code></td><td>The connection is gone. Call it exactly once; use <code>1006</code> when it never opened.</td></tr>
+        <tr><td><code>handlers.cookies(setCookies)</code></td><td>Optional, for <code>"client"</code> transports that see the handshake's <code>Set-Cookie</code> values.</td></tr>
+      </tbody>
+    </table>
+    <p>The returned socket needs <code>send(data)</code> and <code>close(code?, reason?)</code>, and may expose <code>bufferedAmount</code>. butter-col only calls <code>send()</code> after <code>open</code>, and enforces the close-code rules before calling <code>close()</code>.</p>
+
+    <h2 id="cookies">Cookies</h2>
+    <dl class="ref">
+      <dt>meta.cookies = "server"</dt>
+      <dd>Your backend stores cookies, for example per session as butter-col's Lua server does. butter-col never adds <code>Cookie</code> and ignores <code>Set-Cookie</code>. For documents it sets <code>context.wantDocumentCookies</code>, and you should return <code>documentCookies</code>: the non-HttpOnly cookies for that URL, joined with <code>"; "</code>. Script writes to <code>document.cookie</code> are POSTed to <code>config.transport.cookie</code> (<code>/butter/cookie</code>), so your backend needs that endpoint. If you can't provide it, use <code>"client"</code> mode.</dd>
+      <dt>meta.cookies = "client"</dt>
+      <dd>butter-col keeps the jar in the service worker. You receive <code>cookie</code> in <code>req.headers</code>; send it on. You return every <code>set-cookie</code> pair; butter-col stores them. Nothing else is needed, because <code>document.cookie</code> and WebSocket cookies are handled for you.</dd>
+    </dl>
+
+    <h2 id="rules">Rules of the road</h2>
+    <ul>
+      <li><strong>Top level:</strong> do nothing at the top level except <code>registerTransport()</code>. Your script runs in every proxied page, before the page's own code.</li>
+      <li><strong>Globals:</strong> don't touch page globals, and don't add your own. The page can see them.</li>
+      <li><strong>Native APIs:</strong> use <code>env.fetch</code> and <code>env.WebSocket</code> (see <a href="#env">the environment</a>).</li>
+      <li><strong>Concurrency:</strong> <code>request()</code> runs concurrently and must be re-entrant.</li>
+      <li><strong>Redirects:</strong> don't follow them, and don't add or rewrite headers on purpose. butter-col computes the right request headers and expects the raw upstream response.</li>
+      <li><strong>Destinations:</strong> enforce your own policy, such as private-network blocking, on whatever server does the outbound connections. The browser side can't be trusted to do it.</li>
+      <li><strong>Size:</strong> keep the bundle small. It loads into every proxied document.</li>
+      <li><strong>Script format:</strong> build an IIFE with no <code>import</code>/<code>export</code> at the top level, because the same file is loaded with <code>importScripts()</code> and with <code>import</code> in module workers.</li>
+    </ul>
+
+    <h2 id="package">Packaging</h2>
+    <p>A transport package needs two things:</p>
+    <ul>
+      <li>a browser script that registers the transport;</li>
+      <li>a <code>"butter"</code> field telling tools where that script is.</li>
+    </ul>
+    <pre><code>{
+  "name": "@your-scope/thing-transport",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./browser": "./dist/thing-transport.js"
+  },
+  "butter": {
+    "transport": { "name": "thing", "browser": "dist/thing-transport.js" }
+  },
+  "files": ["dist"],
+  "dependencies": { "@axis-network/butter-transport": "^0.1.0" }
+}</code></pre>
+    <p>The recommended layout, which <code>@axis-network/bare-transport</code> uses:</p>
+    <ul>
+      <li><code>src/index.ts</code> exports <code>createThingTransport(options, env)</code> with no side effects, for tests and for people composing transports.</li>
+      <li><code>src/register.ts</code> calls <code>registerTransport("thing", createThingTransport)</code>.</li>
+      <li>esbuild bundles <code>register.ts</code> as an <strong>IIFE</strong> (<code>dist/thing-transport.js</code>) and <code>index.ts</code> as ESM.</li>
+    </ul>
+    <p>Bundle <code>@axis-network/butter-transport</code> into the IIFE. The registry is a single global, so separately bundled copies share it.</p>
+
+    <h2 id="testing">Testing</h2>
+    <h3>Unit tests</h3>
+    <p>Call your factory directly with a fake environment and a mocked <code>fetch</code>, as <code>packages/bare-transport/test/bare.test.mjs</code> does:</p>
+    <pre><code>const env = { scope: "serviceworker", origin: "https://proxy.test", config, fetch: mockFetch, WebSocket: FakeWebSocket };
+const transport = createThingTransport({ endpoint: "/thing" }, env);
+const res = await transport.request({ url: new URL("https://example.com/"), method: "GET",
+  headers: {}, body: null, context: { destination: "", mode: "cors", wantDocumentCookies: false } });</code></pre>
+    <h3>Smoke test</h3>
+    <p><code>@axis-network/butter-transport/testing</code> checks the shape, a real request, and optionally a WebSocket echo:</p>
+    <pre><code>import { smokeTest } from "@axis-network/butter-transport/testing";
+
+const report = await smokeTest(transport, {
+  url: "https://example.com/",
+  websocketUrl: "wss://echo.websocket.org/",
+});
+console.table(report.checks); // shape, status, headers, body, websocket</code></pre>
+    <p>Because transports are plain scripts, you can even load the <em>built</em> browser file into Node (<code>vm.runInThisContext</code>) and smoke-test it against a running server. butter-col's own transports were checked that way.</p>
+    <h3>In the browser</h3>
+    <p>Add it with <code>butter-col transport add</code>, select it in the launcher, open DevTools and watch the service worker's console. Wrapping your transport with the <code>logged</code> template prints every request.</p>
+
+    <h2 id="publish">Publishing</h2>
+    <pre><code>npm run build
+npm publish --access public   # scoped packages are private by default</code></pre>
+    <p>Official Axis Network transports are published under the <code>@axis-network</code> scope. Community transports should use their own scope or name, ideally ending in <code>-transport</code>, and include the <code>butter-transport</code> keyword so others can find them.</p>
+
+    <h2 id="checklist">Checklist</h2>
+    <ul>
+      <li><code>meta.name</code> matches the registered name and <code>package.json</code>'s <code>butter.transport.name</code>.</li>
+      <li><code>meta.cookies</code> is right, and "server" transports return <code>documentCookies</code> and handle <code>/butter/cookie</code>.</li>
+      <li><code>meta.websockets</code> is true only if <code>connect()</code> exists.</li>
+      <li>Only <code>env.fetch</code> and <code>env.WebSocket</code> are used.</li>
+      <li>Redirects aren't followed; <code>set-cookie</code> pairs aren't joined; bodies are decoded.</li>
+      <li>Failures throw <code>TransportError</code> with a standard code; <code>AbortError</code> is re-thrown.</li>
+      <li><code>connect()</code> calls <code>close</code> exactly once, including when the connection never opened.</li>
+      <li>The browser bundle is an IIFE, small, and has no top-level side effects beyond registering.</li>
+      <li><code>smokeTest</code> passes.</li>
+    </ul>
+
+    <h2 id="api">API reference</h2>
+    <p>Everything below is exported from <code>@axis-network/butter-transport</code>.</p>
+    <dl class="ref">
+      <dt>registerTransport(name, factory)</dt>
+      <dd>Register a factory in this realm's global registry. A second registration under the same name replaces the first, with a console warning.</dd>
+      <dt>createTransport(name, options, env) → Promise&lt;ButterTransport&gt;</dt>
+      <dd>Call the factory, validate the result, check <code>meta.name</code> and await <code>init()</code>. butter-col uses this in every realm, and wrapping transports use it to create their inner transport.</dd>
+      <dt>getTransportFactory(name) · listTransports()</dt>
+      <dd>Look up the registry.</dd>
+      <dt>validateTransport(object) → string[]</dt>
+      <dd>Structural problems; an empty array means the object is valid.</dd>
+      <dt>TransportError(code, message, status = 502) · TransportError.is(value) · TRANSPORT_ERROR_CODES</dt>
+      <dd>See <a href="#errors">Errors</a>.</dd>
+      <dt>headersToList(headers) · listToObject(list) · readBody(body)</dt>
+      <dd>Helpers. <code>headersToList</code> keeps <code>Set-Cookie</code> values apart (it uses <code>Headers.getSetCookie()</code>), and <code>readBody</code> reads any response body type into an <code>ArrayBuffer</code>.</dd>
+      <dt>Types</dt>
+      <dd><code>ButterTransport</code>, <code>TransportFactory</code>, <code>TransportEnvironment</code>, <code>TransportMeta</code>, <code>TransportRequest</code>, <code>TransportRequestContext</code>, <code>TransportResponse</code>, <code>SocketHandlers</code>, <code>TransportSocket</code>, <code>HeaderMap</code>, <code>HeaderList</code>, <code>ButterPublicConfig</code>, <code>TransportEntry</code>, <code>TransportScope</code>.</dd>
+      <dt>@axis-network/butter-transport/testing → smokeTest(transport, { url, websocketUrl?, timeout? })</dt>
+      <dd>Returns <code>{ ok, checks: [{ name, ok, detail }] }</code>.</dd>
+    </dl>
+
+    <h2 id="ideas">Ideas</h2>
+    <ul>
+      <li><strong>Wisp:</strong> wrap Mercury Workshop's epoxy-tls or libcurl.js so TLS ends in the browser and the server only relays TCP. This would be a <code>"client"</code> cookie transport.</li>
+      <li><strong>Failover:</strong> try a list of inner transports in order, like the <code>logged</code> wrapper but switching on <code>TRANSPORT_UNREACHABLE</code>.</li>
+      <li><strong>Racing:</strong> send idempotent GETs to two backends and keep the first answer.</li>
+      <li><strong>Caching:</strong> keep immutable responses in the Cache API, keyed by URL, using <code>context.destination</code> to decide what to cache.</li>
+      <li><strong>Direct:</strong> fetch CORS-enabled APIs straight from the browser and fall back to another transport for the rest.</li>
+    </ul>
+  </article>
+</div>
+
+<footer class="site-footer">butter-col · inspired by the work of <a href="/credits.html">Mercury Workshop and Titanium Network</a></footer>
+</body>
+</html>

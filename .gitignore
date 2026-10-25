@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.tools/
+
+# butter-col server runtime (rendered config, logs, CA bundle, staged transports)
+.butter/
+# transport scripts copied in by `butter-col transport add` (rebuilt from the workspace)
+butter-transports/
+# output of `butter-col static`
+static-out/

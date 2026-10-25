@@ -1,0 +1,79 @@
+{
+  "name": "@axis-network/butter-col",
+  "version": "0.1.0",
+  "description": "A service-worker web proxy with pluggable transports and an OpenResty (Lua) backend.",
+  "keywords": [
+    "butter-col",
+    "proxy",
+    "web-proxy",
+    "service-worker",
+    "openresty",
+    "transport"
+  ],
+  "author": "Axis Network",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TheAxis-Network/butter-col.git",
+    "directory": "packages/butter-col"
+  },
+  "bugs": {
+    "url": "https://github.com/TheAxis-Network/butter-col/issues"
+  },
+  "homepage": "https://github.com/TheAxis-Network/butter-col#readme",
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
+    },
+    "./formatter": {
+      "types": "./dist/types/formatter/index.d.ts",
+      "import": "./dist/formatter.mjs"
+    },
+    "./controller": {
+      "types": "./dist/types/controller/index.d.ts",
+      "import": "./dist/controller.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "butter-col": "bin/butter-col.js"
+  },
+  "files": [
+    "bin",
+    "lib",
+    "dist",
+    "site",
+    "LICENSE",
+    "server/conf/nginx.conf.template",
+    "server/conf/butter-proxy.conf.template",
+    "server/conf/mime.types",
+    "server/lua",
+    "server/config.lua",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/build.mjs --watch",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test test/*.test.mjs",
+    "test:lua": "node test/lua/run.mjs"
+  },
+  "dependencies": {
+    "@axis-network/butter-transport": "^0.1.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "fengari": "^0.1.5",
+    "typescript": "^7.0.2"
+  }
+}

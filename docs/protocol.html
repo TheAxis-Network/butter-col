@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Transport protocol · butter-col</title>
+<meta name="description" content="Specification of butter-col's built-in transport: /butter/fetch, /butter/ws, /butter/cookie and friends.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,650;1,9..144,600&family=Inter:wght@400;600&family=JetBrains+Mono&display=swap">
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" type="image/png" href="/butter-col.png">
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="/"><img src="/butter-col.png" alt="butter-col" width="77" height="40"></a>
+  <nav class="site-nav" aria-label="Main">
+    <a href="/">Launch</a>
+    <a href="/guide.html">Guide</a>
+    <a href="/packages.html">Packages</a>
+    <a href="/transports.html">Transports</a>
+    <a href="/custom-transports.html">Build a transport</a>
+    <a href="/architecture.html">Architecture</a>
+    <a href="/formatter.html">Formatter</a>
+    <a href="/protocol.html" aria-current="page">Protocol</a>
+    <a href="/known-issues.html">Known issues</a>
+    <a href="/credits.html">Credits</a>
+  </nav>
+</header>
+
+<div class="docs">
+  <nav class="toc" aria-label="On this page">
+    <h2>Protocol</h2>
+    <ul>
+      <li><a href="#protocol">Overview</a></li>
+      <li><a href="#fetch">POST/GET /butter/fetch</a></li>
+      <li><a href="#ws">GET /butter/ws</a></li>
+      <li><a href="#cookie">POST /butter/cookie</a></li>
+      <li><a href="#config">GET /butter/config.js</a></li>
+      <li><a href="#health">GET /butter/health</a></li>
+      <li><a href="#errors">Errors</a></li>
+      <li><a href="#limits">Limits</a></li>
+      <li><a href="#curl">Try it with curl</a></li>
+      <li><a href="#compare">Compared to Bare &amp; Wisp</a></li>
+    </ul>
+    <h2>In the browser</h2>
+    <ul>
+      <li><a href="#messages">Service worker messages</a></li>
+    </ul>
+  </nav>
+
+  <article class="prose">
+    <h1 id="protocol">Protocol</h1>
+    <p class="lead">This page specifies the wire format of the built-in <code>butter</code> transport, the HTTP protocol between it and butter-col's OpenResty server. One request to the transport is one upstream request, and the response streams straight back.</p>
+    <p>Other transports speak their own protocols. <code>bare</code>, for example, speaks Bare v3 (see <a href="/transports.html">Transports</a>). The <a href="#messages">service worker messages</a> at the end of this page are the same whichever transport is active.</p>
+    <p>All endpoints live under <code>config.base</code> (default <code>/butter/</code>). Version: <strong>0.1.0</strong>. This is a pre-1.0 protocol, so expect changes.</p>
+
+    <h2 id="fetch">/butter/fetch</h2>
+    <p>Performs one HTTP request to the target. The <strong>method and body</strong> of the transport request become the method and body of the upstream request, and nginx streams both directions.</p>
+    <h3>Request headers</h3>
+    <table>
+      <thead><tr><th>Header</th><th>Required</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td><code>X-Butter-URL</code></td><td>yes</td><td>Absolute <code>http:</code> or <code>https:</code> URL. Fragment ignored. Credentials, whitespace, control and non-ASCII characters are refused, so send <code>URL.href</code>.</td></tr>
+        <tr><td><code>X-Butter-Headers</code></td><td>no</td><td>JSON object of request headers for the upstream, e.g. <code>{"accept":"text/html","referer":"https://example.com/"}</code>. Non-ASCII characters must be <code>\uXXXX</code>-escaped.</td></tr>
+        <tr><td><code>X-Butter-Want-Cookies</code></td><td>no</td><td><code>1</code> to receive <code>X-Butter-Document-Cookies</code>. Sent for documents.</td></tr>
+        <tr><td><code>Cookie: butter_sid=…</code></td><td>no</td><td>The session; selects the cookie jar. If it's missing, a session is created and its cookie returned.</td></tr>
+      </tbody>
+    </table>
+    <p>Headers from the transport request itself are dropped, except <code>User-Agent</code>, <code>Accept-Language</code>, <code>Accept-Encoding</code>, <code>Content-Length</code> and <code>Transfer-Encoding</code>, which are forwarded so the upstream sees the real browser. These names are refused inside <code>X-Butter-Headers</code>:</p>
+    <pre><code>host connection keep-alive proxy-connection proxy-authorization te trailer
+transfer-encoding upgrade content-length cookie cookie2 expect
+x-forwarded-for x-forwarded-host x-forwarded-proto x-real-ip forwarded via
+user-agent accept-encoding x-butter-*</code></pre>
+    <p>The server adds <code>Host</code> (the original authority), <code>Cookie</code> (from the jar) and, if configured, <code>User-Agent</code>.</p>
+
+    <h3>Successful response</h3>
+    <p>The outer status is always <strong>200</strong>, whatever the upstream returned.</p>
+    <table>
+      <thead><tr><th>Header</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td><code>X-Butter-Status</code></td><td>Upstream status code, e.g. <code>302</code>.</td></tr>
+        <tr><td><code>X-Butter-Status-Text</code></td><td>Standard reason phrase for that code (nginx doesn't expose the upstream's own phrase).</td></tr>
+        <tr><td><code>X-Butter-Headers</code></td><td>JSON <em>array</em> of <code>[name, value]</code> pairs in upstream order. Duplicates are preserved, and <code>Set-Cookie</code> and hop-by-hop headers are excluded.</td></tr>
+        <tr><td><code>X-Butter-Document-Cookies</code></td><td>If requested: what <code>document.cookie</code> should read for this URL (no HttpOnly cookies).</td></tr>
+        <tr><td><code>Content-Encoding</code>, <code>Content-Length</code></td><td>Copied from upstream, so the browser decompresses the body before the service worker reads it.</td></tr>
+        <tr><td><code>Cache-Control: no-store</code></td><td>Transport responses are per-user and must not be cached.</td></tr>
+        <tr><td><code>Set-Cookie: butter_sid=…</code></td><td>Only when a session was just created.</td></tr>
+      </tbody>
+    </table>
+    <p>The body is the upstream body, streamed. For <code>HEAD</code> and for 204/304 it is empty.</p>
+    <div class="note">Why wrap the status? If the transport answered with the upstream's 302, the browser would follow the redirect itself, and the service worker would never see the <code>Location</code> it needs to rewrite. A 401 with <code>WWW-Authenticate</code> would make the browser show an auth dialog for the proxy origin.</div>
+
+    <h2 id="ws">/butter/ws</h2>
+    <p>A WebSocket tunnel. Browsers can't set headers on WebSocket handshakes, so parameters go in the query string:</p>
+    <pre><code>GET /butter/ws?url=wss%3A%2F%2Fchat.example%2Fsocket&amp;origin=https%3A%2F%2Fexample.com
+Upgrade: websocket
+Connection: Upgrade
+Sec-WebSocket-Key: …
+Sec-WebSocket-Version: 13
+Sec-WebSocket-Protocol: v1</code></pre>
+    <table>
+      <thead><tr><th>Parameter</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td><code>url</code></td><td>Absolute <code>ws:</code> or <code>wss:</code> target URL (required).</td></tr>
+        <tr><td><code>origin</code></td><td>Origin the target should see in <code>Origin</code>, normally the proxied page's origin. Defaults to the target's own origin.</td></tr>
+      </tbody>
+    </table>
+    <p>The server applies the same rate limit, origin check, URL rules and address guard as <code>/butter/fetch</code>. It replaces <code>Cookie</code>, <code>Origin</code> and <code>Referer</code>, then passes the upgrade to the upstream. All <code>Sec-WebSocket-*</code> headers pass through unchanged, so the key/accept exchange, subprotocol and extension negotiation happen end to end, and nginx simply relays frames. Idle connections close after one hour without traffic. <code>Set-Cookie</code> on the upstream handshake response goes into the jar.</p>
+
+    <h2 id="cookie">/butter/cookie</h2>
+    <p>Stores a cookie written by page JavaScript (<code>document.cookie = …</code>).</p>
+    <pre><code>POST /butter/cookie
+Content-Type: application/json
+
+{"url": "https://example.com/account", "cookie": "theme=dark; Max-Age=31536000; Path=/"}</code></pre>
+    <p>The cookie string is parsed like a <code>Set-Cookie</code> header from <code>url</code>, except that it can't create an <code>HttpOnly</code> cookie or overwrite one. The cookie string is capped at 4 KiB and the body at 16 KiB. Responds <code>204 No Content</code>.</p>
+
+    <h2 id="config">/butter/config.js</h2>
+    <p>Generated from the server's Lua configuration (<code>butter.config.lua</code>). Imported by the service worker and read by <code>ButterController</code>. It also issues the session cookie, so the session exists before the first proxied request. Static deployments get the same file from <code>butter-col static</code>.</p>
+    <pre><code>self.__butter$config = {
+  "version": "0.1.0",
+  "prefix": "/butter/go/",
+  "base": "/butter/",
+  "codec": "plain",
+  "transport": { "fetch": "/butter/fetch", "ws": "/butter/ws", "cookie": "/butter/cookie" },
+  "client": "/butter/client.js",
+  "config": "/butter/config.js",
+  "transports": [
+    { "name": "butter", "url": "/butter/transports/butter.js" },
+    { "name": "bare", "url": "/butter/transports/bare.js", "options": { "server": "https://bare.example.com/" } }
+  ],
+  "defaultTransport": "butter"
+};</code></pre>
+
+    <h2 id="health">/butter/health</h2>
+    <pre><code>{"ok":true,"name":"butter-col","version":"0.1.0"}</code></pre>
+
+    <h2 id="errors">Errors</h2>
+    <p>Transport errors use a real 4xx/5xx status, a JSON body <code>{"error":{"code","message"}}</code>, and the same object in the <code>X-Butter-Error</code> header. The header lets clients detect errors without reading the body.</p>
+    <table>
+      <thead><tr><th>Code</th><th>Status</th><th>When</th></tr></thead>
+      <tbody>
+        <tr><td><code>RATE_LIMITED</code></td><td>429</td><td>Too many requests from this address in the current window.</td></tr>
+        <tr><td><code>FORBIDDEN_ORIGIN</code></td><td>403</td><td><code>Sec-Fetch-Site</code> isn't <code>same-origin</code>, or <code>Origin</code> doesn't match <code>Host</code>.</td></tr>
+        <tr><td><code>INVALID_URL</code></td><td>400</td><td>Missing, malformed, wrong scheme, credentials, bad port number.</td></tr>
+        <tr><td><code>INVALID_HEADERS</code></td><td>400</td><td><code>X-Butter-Headers</code> isn't an object, has a bad name or value, or has more than 100 entries.</td></tr>
+        <tr><td><code>BLOCKED_PORT</code></td><td>403</td><td>Port is on the fetch spec's bad-port list.</td></tr>
+        <tr><td><code>BLOCKED_HOST</code></td><td>403</td><td>Host is in <code>guard.blocked_hosts</code> or outside <code>guard.allowed_hosts</code>.</td></tr>
+        <tr><td><code>BLOCKED_ADDRESS</code></td><td>403</td><td>Host resolves to a private or reserved address.</td></tr>
+        <tr><td><code>DNS_FAILURE</code></td><td>502</td><td>Host didn't resolve.</td></tr>
+        <tr><td><code>UPSTREAM_UNREACHABLE</code></td><td>502</td><td>Connection refused or reset, or TLS verification failed.</td></tr>
+        <tr><td><code>UPSTREAM_TIMEOUT</code></td><td>504</td><td>Connect timeout (15 s) or read timeout (120 s for fetch).</td></tr>
+        <tr><td><code>NOT_WEBSOCKET</code></td><td>400</td><td><code>/butter/ws</code> called without <code>Upgrade: websocket</code>.</td></tr>
+        <tr><td><code>INVALID_COOKIE</code></td><td>400</td><td>Bad <code>/butter/cookie</code> body.</td></tr>
+        <tr><td><code>METHOD_NOT_ALLOWED</code></td><td>405</td><td><code>/butter/cookie</code> with a method other than POST.</td></tr>
+      </tbody>
+    </table>
+    <p>The service worker adds its own codes when it can't get a valid answer: <code>TRANSPORT_UNREACHABLE</code>, <code>BAD_TRANSPORT_RESPONSE</code>, <code>TRANSPORT_ERROR</code> and <code>INTERNAL_ERROR</code>. They are shown on the error page and in the <code>X-Butter-Error-Code</code> response header.</p>
+
+    <h2 id="limits">Limits</h2>
+    <table>
+      <thead><tr><th>Limit</th><th>Value</th><th>Set in</th></tr></thead>
+      <tbody>
+        <tr><td>Target URL length</td><td>8192 bytes</td><td><code>butter/url.lua</code></td></tr>
+        <tr><td>Headers in X-Butter-Headers</td><td>100, values ≤ 16 KiB</td><td><code>butter/headers.lua</code></td></tr>
+        <tr><td>Transport request headers in total</td><td>8 × 64 KiB buffers</td><td><code>large_client_header_buffers</code></td></tr>
+        <tr><td>Request body</td><td>100 MiB</td><td><code>client_max_body_size</code></td></tr>
+        <tr><td>Upstream response headers</td><td>64 KiB</td><td><code>proxy_buffer_size</code></td></tr>
+        <tr><td>Connect / read / send timeout (fetch)</td><td>15 s / 120 s / 60 s</td><td><code>nginx.conf</code>, <code>butter-proxy.conf</code></td></tr>
+        <tr><td>WebSocket idle timeout</td><td>1 h</td><td><code>nginx.conf</code></td></tr>
+        <tr><td>Cookies per session / cookie size</td><td>500 / 4 KiB</td><td><code>config.lua</code>, <code>cookiejar.lua</code></td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="curl">Try it with curl</h2>
+    <pre><code># a page through the transport (shows the wrapped status and headers)
+curl -s -D - -o /dev/null http://localhost:8080/butter/fetch \
+  -H 'X-Butter-URL: https://example.com/' \
+  -H 'X-Butter-Headers: {"accept":"text/html"}'
+
+# a POST with a body
+curl -s http://localhost:8080/butter/fetch -X POST \
+  -H 'X-Butter-URL: https://httpbin.org/post' \
+  -H 'X-Butter-Headers: {"content-type":"application/json"}' \
+  --data '{"hello":"butter"}'
+
+# the guard at work
+curl -s -i http://localhost:8080/butter/fetch -H 'X-Butter-URL: http://169.254.169.254/'
+# HTTP/1.1 403 Forbidden
+# X-Butter-Error: {"message":"169.254.169.254 points to a private or reserved address.","code":"BLOCKED_ADDRESS"}</code></pre>
+
+    <h2 id="compare">Compared to Bare &amp; Wisp</h2>
+    <p>butter-col's transport borrows its shape from Titanium Network's <strong>Bare</strong> protocol: the target and headers travel in request headers, and the real status and headers come back in response headers. It differs in a few ways:</p>
+    <ul>
+      <li><strong>Headers:</strong> response headers are an ordered list of pairs, so duplicates survive.</li>
+      <li><strong>Cookies:</strong> they live server-side, per session, rather than being forwarded by the client.</li>
+      <li><strong>Encoding:</strong> compression is left to the browser.</li>
+      <li><strong>Interoperability:</strong> it doesn't try to work with Bare clients.</li>
+    </ul>
+    <p>Mercury Workshop's <strong>Wisp</strong> takes a different approach: it multiplexes raw TCP streams over a single WebSocket, so the client can do TLS itself (as in epoxy and libcurl.js) and the server never sees plaintext. The <code>butter</code> transport chooses the simpler, server-trusting design. The server terminates upstream TLS and therefore sees the traffic it proxies. If you need the other trade-off, it can be built as <a href="/custom-transports.html">another transport</a> rather than by changing butter-col. See <a href="/credits.html">Credits</a>.</p>
+
+    <h2 id="messages">Service worker messages</h2>
+    <p><code>ButterController</code> and the client runtime talk to the service worker with <code>postMessage</code>, passing a <code>MessagePort</code> for the reply:</p>
+    <pre><code>const channel = new MessageChannel();
+channel.port1.onmessage = (event) =&gt; console.log(event.data); // { ok: true, result } or { ok: false, error }
+registration.active.postMessage({ type: "butter:get-transport" }, [channel.port2]);</code></pre>
+    <table>
+      <thead><tr><th>type</th><th>Fields</th><th>result</th></tr></thead>
+      <tbody>
+        <tr><td><code>butter:version</code></td><td></td><td><code>{ version }</code></td></tr>
+        <tr><td><code>butter:get-transport</code></td><td></td><td><code>{ active: { name, url, options }, available: [{ name, url, loaded }] }</code></td></tr>
+        <tr><td><code>butter:set-transport</code></td><td><code>name</code>, <code>options?</code></td><td><code>{ active }</code>. Fails if the transport isn't configured, didn't load, or its factory throws; the choice is saved only on success.</td></tr>
+        <tr><td><code>butter:reset-transport</code></td><td></td><td><code>{ active }</code> (the configured default)</td></tr>
+        <tr><td><code>butter:socket-cookies</code></td><td><code>url</code></td><td><code>{ cookie }</code>: the Cookie header for a WebSocket handshake. Empty for <code>"server"</code>-cookie transports.</td></tr>
+        <tr><td><code>butter:store-cookies</code></td><td><code>url</code>, <code>setCookies</code></td><td><code>{ ok: true }</code>. Stores handshake <code>Set-Cookie</code> values (client jars only).</td></tr>
+      </tbody>
+    </table>
+    <p>Any page on the proxy origin can send these, which includes proxied pages. Switching transports only affects that browser, but a malicious proxied page could switch it, so treat the transport choice as a preference, not a security boundary.</p>
+    <p>With a <code>"client"</code>-cookie transport active, the service worker also answers <code>POST /butter/cookie</code> itself, using the same body as the <a href="#cookie">server endpoint</a>. The request never reaches the network.</p>
+  </article>
+</div>
+
+<footer class="site-footer">butter-col · inspired by the work of <a href="/credits.html">Mercury Workshop and Titanium Network</a></footer>
+</body>
+</html>

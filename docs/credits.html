@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Credits · butter-col</title>
+<meta name="description" content="The projects and people whose ideas butter-col is built on: Mercury Workshop, Titanium Network and more.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,650;1,9..144,600&family=Inter:wght@400;600&family=JetBrains+Mono&display=swap">
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" type="image/png" href="/butter-col.png">
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="/"><img src="/butter-col.png" alt="butter-col" width="77" height="40"></a>
+  <nav class="site-nav" aria-label="Main">
+    <a href="/">Launch</a>
+    <a href="/guide.html">Guide</a>
+    <a href="/packages.html">Packages</a>
+    <a href="/transports.html">Transports</a>
+    <a href="/custom-transports.html">Build a transport</a>
+    <a href="/architecture.html">Architecture</a>
+    <a href="/formatter.html">Formatter</a>
+    <a href="/protocol.html">Protocol</a>
+    <a href="/known-issues.html">Known issues</a>
+    <a href="/credits.html" aria-current="page">Credits</a>
+  </nav>
+</header>
+
+<main class="docs" style="grid-template-columns: minmax(0, 1fr);">
+  <article class="prose" style="margin: 0 auto;">
+    <h1>Credits</h1>
+    <p class="lead">butter-col wouldn't exist without the people who showed that a whole website can run inside a service worker. The idea for this project comes straight from their work.</p>
+
+    <div class="credit-grid">
+      <section class="credit">
+        <h3>Mercury Workshop</h3>
+        <p>For <strong>Scramjet</strong>, the interception proxy that set the modern bar for this kind of project: rewriting JavaScript properly, handling the awkward corners of the web platform, and being taken seriously as software. Also for <strong>Wisp</strong>, <strong>epoxy</strong>, <strong>libcurl.js</strong> and <strong>bare-mux</strong>, which showed how far a proxy transport can go. butter-col's pluggable transports, and switching them at runtime with <code>setTransport</code>, follow the idea bare-mux brought to Scramjet.</p>
+        <ul>
+          <li><a href="https://github.com/MercuryWorkshop">github.com/MercuryWorkshop</a></li>
+          <li><a href="https://github.com/MercuryWorkshop/scramjet">Scramjet</a></li>
+        </ul>
+      </section>
+      <section class="credit">
+        <h3>Titanium Network</h3>
+        <p>For <strong>Ultraviolet</strong>, which made the service-worker web proxy an everyday tool, and for the community that grew around it. butter-col's <code>xor</code> codec uses the same scheme as Ultraviolet's. The built-in transport protocol borrows the shape of <strong>Bare</strong>: targets and headers in request headers, the real status and headers in response headers. <code>@axis-network/bare-transport</code> implements the Bare v3 client side from the TompHTTP specification, so butter-col can use existing Bare servers.</p>
+        <ul>
+          <li><a href="https://github.com/titaniumnetwork-dev">github.com/titaniumnetwork-dev</a></li>
+          <li><a href="https://github.com/titaniumnetwork-dev/Ultraviolet">Ultraviolet</a></li>
+        </ul>
+      </section>
+    </div>
+
+    <div class="note">
+      butter-col is an independent project. It is <strong>not affiliated with or endorsed by</strong> Mercury Workshop or Titanium Network, and it contains no code from their projects. Everything here was written from scratch, inspired by their designs. Any bugs are entirely ours. If you need a proven, maintained proxy today, use theirs.
+    </div>
+
+    <h2>Built with</h2>
+    <table>
+      <thead><tr><th>Project</th><th>Used for</th></tr></thead>
+      <tbody>
+        <tr><td><a href="https://openresty.org/">OpenResty</a> (nginx + LuaJIT)</td><td>The server, including <code>lua-resty-dns</code>, <code>lua-resty-string</code> and <code>lua-cjson</code>, which ship with it</td></tr>
+        <tr><td><a href="https://www.typescriptlang.org/">TypeScript</a></td><td>The service worker, the transport API, the Bare transport and <code>ButterController</code></td></tr>
+        <tr><td><a href="https://docs.npmjs.com/cli/using-npm/workspaces">npm workspaces</a></td><td>The <code>@axis-network</code> packages</td></tr>
+        <tr><td><a href="https://esbuild.github.io/">esbuild</a></td><td>Bundling <code>dist/</code></td></tr>
+        <tr><td><a href="https://github.com/fengari-lua/fengari">fengari</a></td><td>Running the Lua unit tests without a Lua install</td></tr>
+        <tr><td><a href="https://curl.se/docs/caextract.html">curl's CA extract</a> of Mozilla's trust store</td><td>Verifying upstream TLS</td></tr>
+        <tr><td>Fraunces, Inter and JetBrains Mono via Google Fonts</td><td>These docs</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Specifications</h2>
+    <p>The <a href="https://fetch.spec.whatwg.org/">Fetch</a>, <a href="https://html.spec.whatwg.org/">HTML</a> and <a href="https://w3c.github.io/ServiceWorker/">Service Workers</a> standards, and <a href="https://www.rfc-editor.org/rfc/rfc6265">RFC 6265</a> (cookies). The bad-port list, referrer policies, cookie date parsing and much of the tokenizer behaviour follow them directly. The <a href="https://github.com/tomphttp/specifications">TompHTTP specifications</a> (Bare server v2/v3 and its error codes) define what <code>@axis-network/bare-transport</code> speaks.</p>
+
+    <h2>The butter</h2>
+    <p>The butter-col logo is the project's own artwork (<code>butter-col.png</code>).</p>
+  </article>
+</main>
+
+<footer class="site-footer">butter-col · thank you, Mercury Workshop and Titanium Network</footer>
+</body>
+</html>

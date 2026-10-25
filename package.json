@@ -1,0 +1,30 @@
+{
+  "name": "butter-col-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "butter-col: a service-worker web proxy with pluggable transports (Axis Network).",
+  "license": "MIT",
+  "type": "module",
+  "workspaces": [
+    "packages/butter-transport",
+    "packages/butter-col",
+    "packages/bare-transport",
+    "examples/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @axis-network/butter-transport && npm run build -w @axis-network/butter-col && npm run build -w @axis-network/bare-transport && npm run build -w butter-transport-template",
+    "test": "npm test -w @axis-network/butter-col && npm test -w @axis-network/bare-transport",
+    "test:lua": "npm run test:lua -w @axis-network/butter-col",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "check": "npm run build && npm run typecheck && npm test && npm run test:lua",
+    "fetch-ca": "butter-col fetch-ca",
+    "start": "butter-col server start --site docs --config butter.config.lua",
+    "stop": "butter-col server stop",
+    "reload": "butter-col server reload --site docs --config butter.config.lua"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "fengari": "^0.1.5",
+    "typescript": "^7.0.2"
+  }
+}

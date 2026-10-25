@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>butter-col</title>
+<link rel="icon" type="image/png" href="/butter-col.png">
+<style>
+  :root { color-scheme: light dark; --bg: #fbf8f1; --fg: #2a2418; --muted: #75694f; --accent: #e3a92b; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #17140e; --fg: #f1eadb; --muted: #a99c80; } }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--fg);
+         font: 16px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; text-align: center; }
+  .logo { display: block; width: 180px; height: auto; margin: 0 auto 1rem;
+          animation: melt 1.2s ease-in-out infinite alternate; transform-origin: 50% 100%; }
+  @keyframes melt { to { transform: scaleY(.94) scaleX(1.03); } }
+  p { color: var(--muted); margin: .25rem 0; }
+  @media (prefers-reduced-motion: reduce) { .logo { animation: none; } }
+</style>
+</head>
+<body>
+<main>
+  <img class="logo" src="/butter-col.png" alt="" width="694" height="359">
+  <strong id="title">Starting butter-col…</strong>
+  <p id="detail">Installing the service worker.</p>
+</main>
+<script>
+  // Served by the server for /butter/go/* whenever the service worker did not
+  // handle the request (first visit, hard reload, or a new browser profile).
+  (async () => {
+    const title = document.getElementById("title");
+    const detail = document.getElementById("detail");
+    const fail = (message) => {
+      title.textContent = "butter-col can't start";
+      detail.textContent = message;
+    };
+    if (!("serviceWorker" in navigator)) {
+      return fail("This browser does not support service workers (or they are disabled, e.g. in private browsing).");
+    }
+    // If we reloaded moments ago and still landed here, reloading again won't help.
+    const key = "butter:bootstrap:" + location.pathname;
+    const lastAttempt = Number(sessionStorage.getItem(key) || 0);
+    if (Date.now() - lastAttempt < 5000) {
+      sessionStorage.removeItem(key);
+      return fail("The service worker is installed but is not controlling this page. A normal reload usually fixes this; a hard reload (Ctrl+Shift+R) bypasses it.");
+    }
+    try {
+      // Scope "/" needs Service-Worker-Allowed: / on sw.js; static hosts that
+      // cannot send it still work with the narrower default scope.
+      const registration = await navigator.serviceWorker
+        .register("/butter/sw.js", { scope: "/" })
+        .catch(() => navigator.serviceWorker.register("/butter/sw.js", { scope: "/butter/" }));
+      const worker = registration.installing || registration.waiting || registration.active;
+      if (worker && worker.state !== "activated") {
+        await new Promise((resolve) => {
+          worker.addEventListener("statechange", () => worker.state === "activated" && resolve());
+        });
+      }
+      sessionStorage.setItem(key, String(Date.now()));
+      location.reload();
+    } catch (err) {
+      fail(String(err && err.message || err));
+    }
+  })();
+</script>
+</body>
+</html>

@@ -1,0 +1,55 @@
+{
+  "name": "@axis-network/butter-transport",
+  "version": "0.1.0",
+  "description": "Transport API for butter-col: types, registry and a testing kit for building custom transports.",
+  "license": "MIT",
+  "author": "Axis Network",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TheAxis-Network/butter-col.git",
+    "directory": "packages/butter-transport"
+  },
+  "keywords": [
+    "butter-col",
+    "proxy",
+    "transport",
+    "service-worker"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "import": "./dist/testing.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  },
+  "bugs": {
+    "url": "https://github.com/TheAxis-Network/butter-col/issues"
+  },
+  "homepage": "https://github.com/TheAxis-Network/butter-col#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

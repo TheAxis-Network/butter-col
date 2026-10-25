@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Formatter · butter-col</title>
+<meta name="description" content="butter-col's URL codecs and HTML, CSS and JavaScript rewriters, with API reference.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,650;1,9..144,600&family=Inter:wght@400;600&family=JetBrains+Mono&display=swap">
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" type="image/png" href="/butter-col.png">
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="/"><img src="/butter-col.png" alt="butter-col" width="77" height="40"></a>
+  <nav class="site-nav" aria-label="Main">
+    <a href="/">Launch</a>
+    <a href="/guide.html">Guide</a>
+    <a href="/packages.html">Packages</a>
+    <a href="/transports.html">Transports</a>
+    <a href="/custom-transports.html">Build a transport</a>
+    <a href="/architecture.html">Architecture</a>
+    <a href="/formatter.html" aria-current="page">Formatter</a>
+    <a href="/protocol.html">Protocol</a>
+    <a href="/known-issues.html">Known issues</a>
+    <a href="/credits.html">Credits</a>
+  </nav>
+</header>
+
+<div class="docs">
+  <nav class="toc" aria-label="On this page">
+    <h2>Rules</h2>
+    <ul>
+      <li><a href="#urls">URLs</a></li>
+      <li><a href="#html">HTML</a></li>
+      <li><a href="#css">CSS</a></li>
+      <li><a href="#js">JavaScript</a></li>
+      <li><a href="#headers">Response headers</a></li>
+    </ul>
+    <h2>API</h2>
+    <ul>
+      <li><a href="#api-create">createFormatter</a></li>
+      <li><a href="#api-methods">Methods</a></li>
+      <li><a href="#api-exports">Other exports</a></li>
+      <li><a href="#api-example">Example</a></li>
+    </ul>
+    <h2>Hacking</h2>
+    <ul>
+      <li><a href="#tests">Tests</a></li>
+      <li><a href="#extending">Extending</a></li>
+    </ul>
+  </nav>
+
+  <article class="prose">
+    <h1>Formatter</h1>
+    <p class="lead">The formatter is plain JavaScript with no dependencies: strings in, strings out. The service worker uses it on responses, and the client runtime uses it for anything a page builds at runtime.</p>
+    <p class="where">Source paths on this page are relative to <code>packages/butter-col/</code>.</p>
+
+    <h2 id="urls">URLs</h2>
+    <p><code>rewriteUrl(raw, base)</code> resolves <code>raw</code> against the <em>target</em> base URL, then encodes it as <code>origin + prefix + codec.encode(url without fragment) + fragment</code>.</p>
+    <table>
+      <thead><tr><th>Input</th><th>Result (base <code>https://example.com/dir/page</code>, codec <code>plain</code>)</th></tr></thead>
+      <tbody>
+        <tr><td><code>/a.png</code></td><td><code>https://proxy/butter/go/https%3A%2F%2Fexample.com%2Fa.png</code></td></tr>
+        <tr><td><code>b.png</code></td><td><code>…/butter/go/https%3A%2F%2Fexample.com%2Fdir%2Fb.png</code></td></tr>
+        <tr><td><code>//cdn.test/x.js</code></td><td><code>…/butter/go/https%3A%2F%2Fcdn.test%2Fx.js</code></td></tr>
+        <tr><td><code>https://a.test/p#frag</code></td><td><code>…/butter/go/https%3A%2F%2Fa.test%2Fp#frag</code></td></tr>
+        <tr><td><code>#top</code>, <code>data:</code>, <code>blob:</code>, <code>mailto:</code>, <code>tel:</code>, <code>about:</code>, <code>javascript:</code></td><td>Unchanged</td></tr>
+        <tr><td>An already proxied URL</td><td>Unchanged (rewriting is idempotent)</td></tr>
+      </tbody>
+    </table>
+    <p><code>unrewriteUrl(url)</code> reverses it. If the proxied URL carries a raw <code>?query</code>, that query replaces the target's, which matches how browsers resolve <code>?page=2</code> links and GET forms. Anything that isn't a proxied URL is returned unchanged.</p>
+    <p>Module workers get a <code>~m/</code> marker after the prefix (<code>/butter/go/~m/…</code>) so the service worker knows to prepend <code>import</code> rather than <code>importScripts</code>.</p>
+
+    <h2 id="html">HTML</h2>
+    <p>Service workers have no <code>DOMParser</code>, so <code>src/formatter/html.js</code> uses a small, forgiving tokenizer. Only start tags are touched. Text, comments, doctypes and end tags are copied byte for byte. A tag with no changes keeps its exact original source, including quoting and spacing.</p>
+    <table>
+      <thead><tr><th>What</th><th>Rule</th></tr></thead>
+      <tbody>
+        <tr><td><code>href src action formaction poster background cite longdesc manifest codebase icon lowsrc dynsrc xlink:href</code></td><td>URL rewrite. <code>javascript:</code> URLs have their code JS-rewritten instead.</td></tr>
+        <tr><td><code>srcset</code>, <code>imagesrcset</code></td><td>Each candidate rewritten, descriptors kept; data: URLs with commas survive.</td></tr>
+        <tr><td><code>ping</code></td><td>Each space-separated URL rewritten.</td></tr>
+        <tr><td><code>data</code> on <code>&lt;object&gt;</code></td><td>URL rewrite.</td></tr>
+        <tr><td><code>style</code></td><td>CSS rewrite.</td></tr>
+        <tr><td><code>on*</code> handlers</td><td>JS rewrite.</td></tr>
+        <tr><td><code>srcdoc</code> on <code>&lt;iframe&gt;</code></td><td>Full HTML rewrite, with the runtime injected.</td></tr>
+        <tr><td><code>integrity</code></td><td>Renamed to <code>data-butter-integrity</code>. Rewritten files would never match their hashes.</td></tr>
+        <tr><td><code>sandbox</code> on <code>&lt;iframe&gt;</code></td><td>Renamed to <code>data-butter-sandbox</code>. Sandboxed frames can't be controlled by the service worker.</td></tr>
+        <tr><td><code>&lt;meta http-equiv="Content-Security-Policy"&gt;</code></td><td>Neutralized (attribute renamed).</td></tr>
+        <tr><td><code>&lt;meta http-equiv="refresh"&gt;</code></td><td>The URL inside <code>content</code> is rewritten.</td></tr>
+        <tr><td><code>&lt;base href&gt;</code></td><td>Rewritten, and the first one becomes the base for every later relative URL.</td></tr>
+        <tr><td>Inline <code>&lt;script&gt;</code></td><td>JS-rewritten when its <code>type</code> is empty, <code>module</code> or a JavaScript MIME type. JSON, import maps, templates and unknown types are left alone.</td></tr>
+        <tr><td>Inline <code>&lt;style&gt;</code></td><td>CSS rewrite.</td></tr>
+        <tr><td><code>textarea title xmp iframe noembed noframes plaintext</code> content</td><td>Raw text: copied untouched.</td></tr>
+        <tr><td>SVG / MathML</td><td>Tracked so that self-closing <code>&lt;script/&gt;</code> in foreign content isn't mistaken for raw text.</td></tr>
+      </tbody>
+    </table>
+    <p>Attribute values are entity-decoded before rewriting (<code>&amp;amp;</code>, <code>&amp;lt;</code>, numeric references, … following the HTML rule that legacy references without <code>;</code> before <code>=</code> or alphanumerics are left alone) and re-escaped afterwards.</p>
+    <h3>Injection</h3>
+    <p>For documents, the service worker passes markup to inject. It goes immediately after <code>&lt;head&gt;</code>; if any other element starts first, it goes just before that element. Failing both, it goes after the doctype. It is never placed before the doctype, which would trigger quirks mode. The markup is:</p>
+    <pre><code>&lt;script data-butter&gt;self.__butter$config={…};self.__butter$boot={"url":"…","cookies":"…"};&lt;/script&gt;
+&lt;script src="/butter/client.js" data-butter&gt;&lt;/script&gt;</code></pre>
+    <p>The runtime deletes both globals and removes the two <code>script[data-butter]</code> elements once it has started.</p>
+
+    <h2 id="css">CSS</h2>
+    <p><code>url(…)</code> in any quoting style and <code>@import "…"</code> strings are rewritten. <code>url(#fragment)</code> (SVG references) and <code>data:</code> URLs are left alone. Rewritten URLs are emitted as <code>url("…")</code> with quotes and backslashes escaped. Stylesheets with no <code>url(</code> or <code>@import</code> are returned untouched without scanning.</p>
+
+    <h2 id="js">JavaScript</h2>
+    <p>butter-col does not parse JavaScript into an AST. <code>src/formatter/js.js</code> is an error-tolerant tokenizer that understands strings, template literals (including nested <code>${}</code>), comments, regular-expression literals and bracket nesting. It applies three kinds of edit:</p>
+    <table>
+      <thead><tr><th>Source</th><th>Becomes</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td><code>location</code>, <code>x.location</code>, <code>x?.location</code>, <code>x["location"]</code></td><td><code>__butter$location</code></td><td><code>window.location</code> can't be redefined, so code is pointed at an accessor the runtime controls.</td></tr>
+        <tr><td><code>eval(code)</code></td><td><code>eval(__butter$js(code))</code></td><td>Code built at runtime gets rewritten too, and the call stays a <em>direct</em> eval with access to local scope.</td></tr>
+        <tr><td><code>import.meta.url</code></td><td><code>__butter$unrewrite(import.meta.url)</code></td><td>So <code>new URL("./x", import.meta.url)</code> resolves against the real URL.</td></tr>
+      </tbody>
+    </table>
+    <p>Edits are context-aware:</p>
+    <ul>
+      <li>Object literal keys (<code>{ location: 1 }</code>) are kept, so JSON sent to servers is unchanged.</li>
+      <li>Shorthand properties (<code>{ location }</code>) become <code>{ location: __butter$location }</code>.</li>
+      <li><code>import { location } from "x"</code> becomes <code>import { location as __butter$location } from "x"</code>.</li>
+      <li><code>export { location }</code> becomes <code>export { __butter$location as location }</code>.</li>
+      <li>Method definitions named <code>eval</code> aren't wrapped.</li>
+      <li>Local variables named <code>location</code> are renamed consistently, which keeps them working.</li>
+    </ul>
+    <p>Nothing inside strings, template text, comments or regex literals is ever changed. Sources that don't contain <code>location</code>, <code>eval</code> or <code>import.meta</code> skip the tokenizer completely.</p>
+    <p><code>__butter$location</code> is a non-enumerable accessor on <code>Object.prototype</code>. On a window or document it returns that window's fake <code>Location</code>, and on a worker global the fake <code>WorkerLocation</code>. On any other object it simply reads and writes the object's own <code>location</code> property, so <code>obj.location</code> on ordinary objects keeps working after the rename.</p>
+
+    <h2 id="headers">Response headers</h2>
+    <p>Applied by the service worker (<code>src/sw/response.ts</code>) to every proxied response:</p>
+    <table>
+      <thead><tr><th>Header</th><th>Treatment</th></tr></thead>
+      <tbody>
+        <tr><td><code>Location</code>, <code>Content-Location</code></td><td>URL rewrite against the target URL</td></tr>
+        <tr><td><code>Refresh</code></td><td>URL inside rewritten</td></tr>
+        <tr><td><code>Link</code></td><td>Every <code>&lt;url&gt;</code> rewritten</td></tr>
+        <tr><td>CSP (all variants), X-Frame-Options, X-XSS-Protection, HSTS, Expect-CT, HPKP, COOP, COEP, CORP, Origin-Agent-Cluster, Document-Policy, Clear-Site-Data, Service-Worker-Allowed, Report-To, Reporting-Endpoints, NEL, Alt-Svc</td><td>Dropped</td></tr>
+        <tr><td><code>Set-Cookie</code></td><td>Never reaches the browser (the server's jar consumed it)</td></tr>
+        <tr><td><code>Content-Encoding</code>, <code>Content-Length</code>, hop-by-hop</td><td>Dropped (the body was already decoded or changed)</td></tr>
+        <tr><td><code>Content-Type</code> of rewritten bodies</td><td>Charset forced to UTF-8</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="api-create">createFormatter(config)</h2>
+    <pre><code>import { createFormatter } from "@axis-network/butter-col/formatter"; // or "/butter/formatter.mjs" in a page
+
+const f = createFormatter({
+  origin: "https://proxy.example.net", // the proxy's origin
+  prefix: "/butter/go/",               // must match the server's config
+  codec: "plain",                      // "none" | "plain" | "xor" | "base64"
+});</code></pre>
+    <p><code>dist/formatter.mjs</code> is an ES module build of <code>src/formatter/index.js</code>, with type declarations in <code>dist/types/</code>. npm users import it as <code>@axis-network/butter-col/formatter</code>. The server serves it at <code>/butter/formatter.mjs</code>, and <code>ButterController</code> bundles it to encode URLs.</p>
+
+    <h2 id="api-methods">Methods</h2>
+    <dl class="ref">
+      <dt>f.rewriteUrl(raw, base, { moduleWorker? })</dt>
+      <dd>Proxy URL for <code>raw</code>, resolved against <code>base</code> (string or <code>URL</code>).</dd>
+      <dt>f.unrewriteUrl(proxied)</dt>
+      <dd>The target URL, or the input unchanged if it isn't proxied.</dd>
+      <dt>f.html(source, { base, inject? })</dt>
+      <dd>Rewrite a document or fragment. Without <code>inject</code>, nothing is inserted (fragment mode).</dd>
+      <dt>f.css(source, base)</dt>
+      <dd>Rewrite a stylesheet or a <code>style</code> attribute.</dd>
+      <dt>f.js(source)</dt>
+      <dd>Rewrite a script. It doesn't need a base, because URLs in scripts are handled at runtime.</dd>
+      <dt>f.attr(tag, name, value, { base, inject? })</dt>
+      <dd>Rewrite one attribute value exactly as the HTML rewriter would. The runtime's <code>setAttribute</code> hook uses it.</dd>
+      <dt>f.refresh(value, base)</dt>
+      <dd>Rewrite the URL in a <code>Refresh</code> value such as <code>"5; url=/next"</code>.</dd>
+      <dt>f.url.decodeTail(tail)</dt>
+      <dd>Decode what follows the prefix, or <code>null</code> if it isn't a valid encoded URL.</dd>
+      <dt>f.url.rewriteSrcset(value, base) / unrewriteSrcset(value)</dt>
+      <dd>Rewrite or un-rewrite every candidate in a srcset.</dd>
+      <dt>f.url.isProxied(url)</dt>
+      <dd>Whether a URL already points through the proxy.</dd>
+    </dl>
+
+    <h2 id="api-exports">Other exports</h2>
+    <dl class="ref">
+      <dt>codecs, getCodec(name)</dt>
+      <dd>The four codecs, each <code>{ encode(url), decode(encoded) }</code>.</dd>
+      <dt>rewriteHtml, rewriteCss, rewriteJs</dt>
+      <dd>The underlying rewriters.</dd>
+      <dt>decodeEntities, escapeAttribute, URL_ATTRS</dt>
+      <dd>HTML helpers.</dd>
+      <dt>LOCATION, EVAL_WRAP, UNREWRITE, MODULE_WORKER_MARK</dt>
+      <dd>The identifiers the rewriter emits and the runtime defines: <code>"__butter$location"</code>, <code>"__butter$js"</code>, <code>"__butter$unrewrite"</code>, <code>"~m/"</code>.</dd>
+    </dl>
+
+    <h2 id="api-example">Example</h2>
+    <pre><code>const page = await (await fetch("https://example.com/")).text();
+const html = f.html(page, { base: "https://example.com/" });
+
+f.js("if (location.hostname === 'example.com') location.href = '/home'");
+// → "if (__butter$location.hostname === 'example.com') __butter$location.href = '/home'"
+
+f.css("body { background: url(/bg.png) }", "https://example.com/");
+// → 'body { background: url("https://proxy.example.net/butter/go/https%3A%2F%2Fexample.com%2Fbg.png") }'</code></pre>
+
+    <h2 id="tests">Tests</h2>
+    <p><code>test/formatter.test.mjs</code> covers codec round-trips, URL rewriting, srcset, CSS, about twenty JavaScript edge cases (strings, regexes, templates, object keys, shorthand, import/export, eval) and HTML (injection position, entities, raw text, base, SVG). Run it with <code>npm test</code>.</p>
+
+    <h2 id="extending">Extending</h2>
+    <ul>
+      <li><strong>A new URL attribute:</strong> add it to <code>URL_ATTRS</code> in <code>html.js</code>. Both the HTML rewriter and the runtime's attribute hooks pick it up.</li>
+      <li><strong>A new codec:</strong> add <code>{ encode, decode }</code> to <code>codecs.js</code>, and add its name to <code>CODECS</code> in <code>server/lua/butter/config.lua</code> and in <code>lib/index.js</code> (static deployments). Make sure <code>decode(encode(x)) === x</code>.</li>
+      <li><strong>A new JS rewrite:</strong> add it to the identifier branch of <code>rewriteJs</code>, emit edits, never change text inside non-code tokens, and add tests for strings, comments and regexes.</li>
+    </ul>
+  </article>
+</div>
+
+<footer class="site-footer">butter-col · inspired by the work of <a href="/credits.html">Mercury Workshop and Titanium Network</a></footer>
+</body>
+</html>
